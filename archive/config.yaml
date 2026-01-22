@@ -1,0 +1,64 @@
+# Purpose Prompter Configuration
+# A prompt chain framework for Claude Code
+# Owner: Yu (private use only)
+
+invocation:
+  # Explicit triggers - when user says any of these, activate the framework
+  triggers:
+    - "use purpose prompter"
+    - "pp:"
+    - "/pp"
+    - "use prompt chain"
+
+  # When activated, read ACTIVATE.md first
+  entry_point: "ACTIVATE.md"
+
+workflows:
+  # Primary workflows (user's main use cases)
+  primary:
+    - architecture_design
+    - feature_implementation
+
+  # Secondary workflows (less frequent)
+  secondary:
+    - debugging
+    - code_review
+
+quality:
+  # User's priority dimensions (ordered by importance)
+  priorities:
+    - correctness    # Does it work as intended? No bugs?
+    - completeness   # Are all requirements addressed? Nothing missing?
+    - maintainability
+    - clarity
+
+  # Minimum thresholds before proceeding
+  gates:
+    correctness: 0.9
+    completeness: 0.9
+    maintainability: 0.7
+    clarity: 0.7
+
+chain_defaults:
+  # Default chain type for different workflows
+  architecture_design: "tree_of_thoughts"
+  feature_implementation: "sequential_with_gates"
+
+  # Max iterations for refinement loops
+  max_iterations: 3
+
+  # Always decompose if estimated steps > this
+  decomposition_threshold: 3
+
+output:
+  # Always produce these artifacts
+  required_artifacts:
+    architecture_design:
+      - "design_rationale"
+      - "component_diagram_description"
+      - "file_structure"
+      - "interface_definitions"
+    feature_implementation:
+      - "implementation_plan"
+      - "affected_files"
+      - "test_considerations"

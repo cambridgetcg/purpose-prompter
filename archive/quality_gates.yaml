@@ -1,0 +1,258 @@
+# Quality Gates Configuration
+# Focused on Yu's priorities: Completeness and Correctness
+
+gates:
+  # ============================================================
+  # PRIMARY GATES (Highest Priority - Must Pass)
+  # ============================================================
+
+  correctness:
+    priority: 1
+    description: "Does it work correctly? No bugs, no logical flaws?"
+    threshold: 0.9
+
+    checks:
+      logic_correctness:
+        question: "Is the logic sound and free of bugs?"
+        failure_indicators:
+          - "Conditional logic has wrong operators or inverted conditions"
+          - "Loop bounds are incorrect (off-by-one, infinite loops)"
+          - "Null/undefined values not handled"
+          - "Type mismatches or coercion bugs"
+          - "Race conditions or state corruption"
+        verification: "Trace through code mentally with test cases"
+
+      interface_correctness:
+        question: "Do interfaces match and contracts hold?"
+        failure_indicators:
+          - "Function signatures don't match callers"
+          - "Return types don't match expected types"
+          - "Missing required parameters"
+          - "Contract violations (preconditions, postconditions)"
+        verification: "Check all interface boundaries"
+
+      data_correctness:
+        question: "Is data handled correctly throughout?"
+        failure_indicators:
+          - "Data transformation loses information"
+          - "Incorrect serialization/deserialization"
+          - "Schema mismatches"
+          - "Data validation missing at boundaries"
+        verification: "Trace data flow end-to-end"
+
+      error_correctness:
+        question: "Are errors handled correctly?"
+        failure_indicators:
+          - "Errors silently swallowed"
+          - "Wrong error types thrown"
+          - "Error messages misleading"
+          - "Recovery logic incorrect"
+        verification: "Test error paths explicitly"
+
+  completeness:
+    priority: 2
+    description: "Are ALL requirements addressed? Nothing missing?"
+    threshold: 0.9
+
+    checks:
+      requirement_coverage:
+        question: "Is every stated requirement addressed?"
+        failure_indicators:
+          - "Requirement mentioned but not implemented"
+          - "Partial implementation of a requirement"
+          - "Requirement addressed but not fully functional"
+        verification: "Trace each requirement to implementation"
+
+      implicit_requirements:
+        question: "Are obvious/implied requirements addressed?"
+        failure_indicators:
+          - "Common expected behaviors missing"
+          - "Standard UX patterns ignored"
+          - "Obvious edge cases not handled"
+        verification: "Think like an end user"
+
+      edge_case_coverage:
+        question: "Are edge cases handled?"
+        failure_indicators:
+          - "Empty inputs not handled"
+          - "Boundary values not tested"
+          - "Unusual but valid inputs cause failures"
+          - "Concurrent/timing edge cases ignored"
+        verification: "List edge cases, verify each"
+
+      error_case_coverage:
+        question: "Are error scenarios handled?"
+        failure_indicators:
+          - "Network failures not handled"
+          - "Invalid input not validated"
+          - "Resource exhaustion not considered"
+          - "External service failures not handled"
+        verification: "List failure modes, verify each"
+
+      no_todos:
+        question: "Are there any unresolved TODOs or placeholders?"
+        failure_indicators:
+          - "TODO comments left in code"
+          - "Placeholder values in implementation"
+          - "Stub functions not implemented"
+          - "NotImplementedError in shipping code"
+        verification: "Search for TODO, FIXME, placeholder"
+
+  # ============================================================
+  # SECONDARY GATES (Important but Lower Priority)
+  # ============================================================
+
+  maintainability:
+    priority: 3
+    description: "Can this be maintained and extended?"
+    threshold: 0.7
+
+    checks:
+      code_clarity:
+        question: "Is the code easy to understand?"
+        failure_indicators:
+          - "Complex logic without explanation"
+          - "Misleading variable/function names"
+          - "Non-obvious side effects"
+          - "Deeply nested conditionals"
+        verification: "Read code fresh, note confusion points"
+
+      consistency:
+        question: "Does it follow existing patterns?"
+        failure_indicators:
+          - "Different style than rest of codebase"
+          - "New patterns without justification"
+          - "Inconsistent naming conventions"
+        verification: "Compare to existing code patterns"
+
+      modularity:
+        question: "Is it properly modular?"
+        failure_indicators:
+          - "God functions doing too much"
+          - "Tight coupling between components"
+          - "Missing abstraction boundaries"
+        verification: "Check single responsibility"
+
+  clarity:
+    priority: 4
+    description: "Is the solution clearly explained?"
+    threshold: 0.7
+
+    checks:
+      explanation_quality:
+        question: "Is the approach clearly explained?"
+        failure_indicators:
+          - "No rationale for key decisions"
+          - "Assumptions not stated"
+          - "Complex parts unexplained"
+        verification: "Could someone else understand this?"
+
+      documentation:
+        question: "Is necessary documentation provided?"
+        failure_indicators:
+          - "Public APIs undocumented"
+          - "Complex algorithms unexplained"
+          - "Setup/usage instructions missing"
+        verification: "Check documentation completeness"
+
+# ============================================================
+# GATE APPLICATION RULES
+# ============================================================
+
+application_rules:
+  # When to apply which gates
+  architecture_design:
+    required_gates:
+      - correctness.logic_correctness
+      - correctness.interface_correctness
+      - completeness.requirement_coverage
+      - completeness.implicit_requirements
+      - clarity.explanation_quality
+    optional_gates:
+      - maintainability.modularity
+
+  feature_implementation:
+    required_gates:
+      - correctness.logic_correctness
+      - correctness.interface_correctness
+      - correctness.data_correctness
+      - correctness.error_correctness
+      - completeness.requirement_coverage
+      - completeness.edge_case_coverage
+      - completeness.error_case_coverage
+      - completeness.no_todos
+    optional_gates:
+      - maintainability.code_clarity
+      - maintainability.consistency
+
+# ============================================================
+# QUICK REFERENCE CHECKLISTS
+# ============================================================
+
+quick_checklists:
+  pre_delivery:
+    title: "Before Delivering Any Output"
+    items:
+      - "All stated requirements addressed?"
+      - "All implied requirements addressed?"
+      - "Edge cases handled?"
+      - "Error cases handled?"
+      - "No TODOs or placeholders?"
+      - "Logic is correct?"
+      - "Types/interfaces match?"
+      - "Tested/verified?"
+
+  architecture_specific:
+    title: "Architecture Design Specific"
+    items:
+      - "All components have clear purpose?"
+      - "No circular dependencies?"
+      - "Interfaces fully specified?"
+      - "Trade-offs documented?"
+      - "Decisions have rationale?"
+      - "Requirements traceable?"
+
+  implementation_specific:
+    title: "Implementation Specific"
+    items:
+      - "Follows existing patterns?"
+      - "Error handling complete?"
+      - "Input validation at boundaries?"
+      - "No hardcoded values?"
+      - "Tests cover requirements?"
+      - "Changes documented?"
+
+# ============================================================
+# SELF-EVALUATION PROMPTS
+# ============================================================
+
+self_evaluation:
+  completeness_prompt: |
+    Before finalizing, I must verify completeness:
+
+    1. List ALL requirements from the user's request
+    2. For EACH requirement, identify where it's addressed
+    3. If ANY requirement lacks clear implementation, FLAG IT
+    4. Check for implied requirements I might have missed
+    5. Verify no TODOs or placeholders remain
+
+    Requirements not addressed: [list or "None"]
+
+  correctness_prompt: |
+    Before finalizing, I must verify correctness:
+
+    1. Trace through the logic with sample inputs
+    2. Check boundary conditions
+    3. Verify error handling paths
+    4. Confirm types/interfaces match
+    5. Look for common bugs (null, off-by-one, etc.)
+
+    Potential issues found: [list or "None"]
+
+  final_check_prompt: |
+    FINAL QUALITY CHECK:
+
+    Completeness: [PASS/FAIL] - [brief reason]
+    Correctness: [PASS/FAIL] - [brief reason]
+
+    If either FAIL, address before delivery.

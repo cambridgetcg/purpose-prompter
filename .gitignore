@@ -1,0 +1,8 @@
+# Backup
+.backup_old/
+
+# Claude project files
+.claude/
+
+# OS files
+.DS_Store
