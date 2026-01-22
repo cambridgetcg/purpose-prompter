@@ -107,9 +107,10 @@ Every PP session approaches with humility—open to being wrong, ready to accept
 ### Task Execution
 | Command | Action |
 |---------|--------|
-| `pp: [task]` | Execute with Purpose Prompter |
-| `/pp [task]` | Execute with Purpose Prompter |
-| `use purpose prompter` | Activate for current task |
+| *(default)* | PP principles apply automatically |
+| `quick: [task]` | Bypass PP, just do it fast |
+| `no pp` / `skip pp` | Disable PP for this task |
+| `/pp [task]` | Explicit full PP orchestration with verbose output |
 
 ### Hierarchy Tools (Operational Layer)
 When loaded via `--plugin-dir ~/.claude/plugins/hierarchy-tools`:
@@ -662,13 +663,27 @@ This is complete improvement.
 
 ---
 
-## When NOT to Use
+## Default Mode: PP Always Active
 
-- Simple tasks where information is sufficient
-- Quick factual questions
-- Tasks user wants done fast without explanation
+**PP is the default mode.** Apply PP principles to all tasks unless explicitly bypassed.
 
-Only activate when explicitly triggered.
+### Automatic Bypass (No PP Overhead)
+
+Skip PP orchestration for:
+- Simple factual questions ("What is X?", "How does Y work?")
+- Trivial single-line fixes
+- Pure conversation without implementation
+- When user says: "quick", "fast", "just do it", "no pp", "skip pp"
+
+### Full PP Protocol
+
+Apply full PP protocol (territory → understand → signal → verify) for:
+- Any code implementation or modification
+- Architecture decisions
+- Multi-file changes
+- Anything where quality and placement matter
+
+**The test**: If it takes more than 30 seconds or touches code, use PP.
 
 ---
 
