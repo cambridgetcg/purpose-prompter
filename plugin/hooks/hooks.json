@@ -1,35 +1,13 @@
 {
-  "description": "Hierarchy Tools hooks for Purpose Prompter auto-triggering and signal detection",
+  "description": "Purpose Prompter hooks - lightweight, non-blocking guidance",
   "hooks": {
-    "UserPromptSubmit": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "prompt",
-            "prompt": "CRITICAL PP ACTIVATION CHECK: Examine the user's message. If it starts with 'pp:', '/pp ', 'use purpose prompter', or 'use pp', you MUST immediately invoke the pp-orchestrator skill via the Skill tool with skill='hierarchy-tools:pp-orchestrator'. Extract the task from the user's message (everything after the prefix) and include it in your orchestration. DO NOT proceed with any implementation until the PP orchestration protocol is complete. If the message does NOT match these patterns, ignore this instruction and respond normally."
-          }
-        ]
-      }
-    ],
     "PreToolUse": [
       {
-        "matcher": "Edit|Write|MultiEdit",
+        "matcher": "Edit|Write",
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "SIGNAL CHECK: Before making this code change, briefly assess: (1) Does this solution feel ugly? If yes, you may not fully understand the PROBLEM - consider using /deep-understand first. (2) Does this placement feel wrong? If yes, you may not fully understand the CODEBASE - consider using /deep-understand on the codebase structure. (3) Are you forcing this into existing structure when it doesn't fit? If yes, this might be UNCHARTED territory - consider using /territory assessment. Only proceed if no signals detected."
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "prompt",
-            "prompt": "PP COMPLETION CHECK: If Purpose Prompter was activated in this session (user said 'pp:', '/pp', or 'use purpose prompter'): (1) Ensure verification was completed via /verify before stopping. (2) Present feedback prompt: 'PP Task Assessment: Was the improvement Complete/Beautiful/Just/Creative? Use /pp-feedback for details.' (3) After feedback is logged, check entry count - if 10+ entries exist and no recent review, suggest: 'Consider running /pp-review to synthesize patterns from accumulated feedback.' (4) Suggest /pp-health for quick status check."
+            "prompt": "PP Reminder: For significant code changes, consider whether you've (1) read the target file, (2) found existing patterns to follow, (3) justified this location. Continue with your edit."
           }
         ]
       }
