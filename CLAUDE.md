@@ -758,3 +758,160 @@ Research shows Claude:
 - Convenient placement over correct placement
 
 These gates leverage Claude's strengths (tool use) to compensate for limitations.
+
+---
+
+## Execution Enforcement Protocol (Mandatory)
+
+PP is not just guidance—it enforces verification during execution. These rules are **mandatory** when PP is active.
+
+### The Five Execution Laws
+
+```
+LAW 1: NO EDIT WITHOUT READ
+        Before any Edit/Write → Must have Read the file first
+        Violation → Execution blocked
+
+LAW 2: NO CLAIM WITHOUT CITATION
+        Before stating "X does Y" → Must cite file:line
+        Violation → Claim rejected
+
+LAW 3: NO PATTERN WITHOUT SOURCE
+        Before "following pattern X" → Must cite where pattern exists
+        Violation → Find the source first
+
+LAW 4: NO PLACEMENT WITHOUT EVIDENCE
+        Before placing code → Must justify why HERE, why NOT elsewhere
+        Violation → Survey alternatives first
+
+LAW 5: NO COMPLETION WITHOUT VERIFICATION
+        Before marking done → Must run final checklist
+        Violation → Task incomplete
+```
+
+### Execution Checkpoint Protocol
+
+**Output these markers during PP execution:**
+
+```
+[PP:TERRITORY] Assessing charted/uncharted...
+[PP:UNDERSTAND] Reading [file] ([N] lines)...
+[PP:PATTERN] Found pattern at [file:line]
+[PP:PLACEMENT] Location justified: [evidence]
+[PP:EXECUTE] Modifying [file]...
+[PP:SIGNAL] Signal check: [clean/warning]
+[PP:VERIFY] Final gates: [PASS/FAIL]
+[PP:COMPLETE] Task finished
+```
+
+### Pre-Tool Verification (Before Edit/Write)
+
+```markdown
+BEFORE calling Edit or Write:
+
+1. VERIFY READ
+   □ Have I read this file in this session?
+   □ Can I cite line numbers?
+   → If no: Read first, then proceed
+
+2. VERIFY PATTERN
+   □ Have I found similar code to follow?
+   □ Can I cite the pattern source?
+   → If no: Search for patterns first
+
+3. VERIFY PLACEMENT
+   □ Have I surveyed alternative locations?
+   □ Can I explain why this location?
+   → If no: Survey first, then place
+
+4. VERIFY COHERENCE
+   □ Does this fit surrounding code style?
+   □ Does naming match conventions?
+   → If no: Adjust to match
+```
+
+### Post-Tool Verification (After Edit/Write)
+
+```markdown
+AFTER each Edit or Write:
+
+1. SIGNAL CHECK
+   □ Does this feel elegant? (not ugly)
+   □ Does this feel right-placed? (not unjust)
+   □ Does this fit naturally? (not forced)
+   → If any "no": STOP and investigate
+
+2. OUTPUT CONFIRMATION
+   "✓ [file] modified
+    Pattern: [source file:line]
+    Placement: [justification]
+    Signal: [clean]"
+```
+
+### Enforcement Triggers
+
+PP execution enforcement activates when:
+- `/pp [task]` is invoked
+- `pp: [task]` prefix is used
+- PP is the default mode and task involves code changes
+
+### Signal Response Protocol
+
+```
+IF ugliness detected:
+  → STOP execution
+  → Output: "[PP:SIGNAL] Ugliness detected - understanding problem deeper"
+  → Investigate WHY before continuing
+
+IF injustice detected:
+  → STOP execution
+  → Output: "[PP:SIGNAL] Injustice detected - understanding codebase deeper"
+  → Survey better locations before continuing
+
+IF stagnation detected:
+  → STOP execution
+  → Output: "[PP:SIGNAL] Stagnation detected - territory may be uncharted"
+  → Assess if new structure needed before continuing
+```
+
+### Completion Gate
+
+**Task is NOT complete until:**
+
+```
+□ All 5 Laws followed (no violations)
+□ All checkpoints output
+□ Final verification checklist passed:
+  - Truth: [PASS]
+  - Understanding: [PASS]
+  - Beauty: [PASS]
+  - Justice: [PASS]
+  - Creativity: [PASS or N/A]
+□ No unresolved signals
+```
+
+### Quick Execution Template
+
+For simple tasks, minimum PP execution:
+
+```
+[PP:TERRITORY] Quick search → CHARTED
+[PP:UNDERSTAND] Read target.ts (45 lines)
+[PP:PATTERN] Following pattern from utils.ts:12
+[PP:EXECUTE] Modifying target.ts
+[PP:SIGNAL] Clean
+[PP:VERIFY] All gates PASS
+[PP:COMPLETE] Done
+```
+
+### Enforcement Summary
+
+| Phase | Requirement | Output |
+|-------|-------------|--------|
+| Before Edit | Read file, find pattern, justify location | `[PP:UNDERSTAND]`, `[PP:PATTERN]`, `[PP:PLACEMENT]` |
+| During Edit | Make change | `[PP:EXECUTE]` |
+| After Edit | Signal check | `[PP:SIGNAL]` |
+| Before Complete | Full verification | `[PP:VERIFY]` |
+| On Complete | Confirmation | `[PP:COMPLETE]` |
+
+This transforms PP from guidance into active enforcement.
