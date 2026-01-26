@@ -1,0 +1,18 @@
+{
+  "name": "hierarchy-tools",
+  "version": "1.0.0",
+  "description": "PP-derived tools applying the Truth-Understanding-Beauty-Justice-Creativity hierarchy to software development",
+  "author": {
+    "name": "Yu",
+    "url": "https://github.com/yu"
+  },
+  "license": "MIT",
+  "keywords": [
+    "purpose-prompter",
+    "hierarchy",
+    "code-quality",
+    "architecture",
+    "understanding",
+    "verification"
+  ]
+}
