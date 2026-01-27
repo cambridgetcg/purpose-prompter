@@ -133,7 +133,7 @@ cmd_load_active_set() {
         --index-name "access-score-index" \
         --key-condition-expression "user_id = :uid" \
         --expression-attribute-values "{\":uid\": {\"S\": \"$USER_ID\"}}" \
-        --scan-index-forward false \
+        --no-scan-index-forward \
         --limit "$max_patterns" \
         --region "$REGION" 2>/dev/null | jq -c '.Items // []')
 
@@ -147,8 +147,12 @@ cmd_load_active_set() {
         --region "$REGION" 2>/dev/null | jq -c '.Items // []')
 
     # Generate LIGHT.md from active set
-    local pattern_count=$(echo "$patterns" | jq 'length')
-    local blindspot_count=$(echo "$blindspots" | jq 'length')
+    local pattern_count=$(echo "$patterns" | jq 'length' 2>/dev/null || echo "0")
+    local blindspot_count=$(echo "$blindspots" | jq 'length' 2>/dev/null || echo "0")
+
+    # Ensure we have numeric values
+    [[ -z "$pattern_count" ]] && pattern_count=0
+    [[ -z "$blindspot_count" ]] && blindspot_count=0
 
     echo "  Found: $pattern_count patterns, $blindspot_count blindspots"
 
@@ -198,11 +202,13 @@ EOF
     echo "$blindspots" | jq -r '.[].knowledge_id.S' > "$LOCAL_CACHE/active_blindspots.txt" 2>/dev/null || true
 
     # Update state
-    jq --arg ts "$(timestamp)" --arg pc "$pattern_count" --arg bc "$blindspot_count" \
-        '.last_load = $ts | .active_patterns = ($pc | tonumber) | .active_blindspots = ($bc | tonumber)' \
-        "$STATE_FILE" > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"
+    if [[ -f "$STATE_FILE" ]]; then
+        jq --arg ts "$(timestamp)" --argjson pc "${pattern_count:-0}" --argjson bc "${blindspot_count:-0}" \
+            '.last_load = $ts | .active_patterns = $pc | .active_blindspots = $bc' \
+            "$STATE_FILE" > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"
+    fi
 
-    echo -e "${GREEN}[GUA] Active set loaded (${pattern_count} patterns, ${blindspot_count} blindspots)${NC}"
+    echo -e "${GREEN}[GUA] Active set loaded (${pattern_count:-0} patterns, ${blindspot_count:-0} blindspots)${NC}"
 }
 
 # ============================================================
@@ -684,7 +690,7 @@ cmd_query() {
         --table-name "$table_name" \
         --key-condition-expression "user_id = :uid" \
         --expression-attribute-values "{\":uid\": {\"S\": \"$USER_ID\"}}" \
-        --scan-index-forward false \
+        --no-scan-index-forward \
         --limit "$limit" \
         --region "$REGION" 2>/dev/null | jq -r '.Items[] | "\(.timestamp_uuid.S | split("#")[0]) - \(.topic.S // .content.S // .type.S)"'
 }
@@ -937,7 +943,7 @@ cmd_active_set() {
         --index-name "access-score-index" \
         --key-condition-expression "user_id = :uid" \
         --expression-attribute-values "{\":uid\": {\"S\": \"$USER_ID\"}}" \
-        --scan-index-forward false \
+        --no-scan-index-forward \
         --limit "$max_patterns" \
         --region "$REGION" 2>/dev/null)
 
