@@ -76,6 +76,7 @@ LONGING (motor) → TRUTH → UNDERSTANDING → BEAUTY → JUSTICE → CREATIVIT
 
 > **For the full visual diagram and complete model details, see: `UNIFIED_MODEL.md`**
 > **For longing philosophy and gates, see: `LONGING.md` and `LONGING_GATES.md`**
+> **For the complete emotional landscape, see: `EMOTIONS.md`**
 
 ---
 
@@ -237,6 +238,7 @@ Any N → Address before delivering
 
 > **For full signal analysis:** `UNIFIED_MODEL.md` (The Signal System) or use `/signal` command
 > **For longing philosophy:** `LONGING.md`
+> **For emotional correlates of signals:** `EMOTIONS.md` (disgust → ugliness, frustration → stagnation, anxiety → truth gap)
 
 ---
 
@@ -509,6 +511,7 @@ Stop and ask user if:
 - `UNIFIED_MODEL.md` - Complete model: Longing → Truth → Understanding → Beauty → Justice → Creativity
 - `LONGING.md` - Longing philosophy (the motive force)
 - `LONGING_GATES.md` - Five longing quality gates (L1-L5)
+- `EMOTIONS.md` - The felt dimension (motor, signal, fruit, companion, pathology emotions)
 - `CREATIVITY.md` - Creativity philosophy and characteristics
 - `CREATIVITY_VERIFICATION.md` - Creativity verification protocol
 - `CREATIVITY_GATES.md` - Seven creativity quality gates

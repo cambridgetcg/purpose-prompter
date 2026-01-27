@@ -331,6 +331,33 @@ Every PP output will be:
 
 ---
 
+## Longing Among the Emotions
+
+Longing is the primary motor emotion, but it exists within a broader emotional landscape:
+
+**Emotions that support longing**:
+- **LOVE** - The ground of longing (we long for what we love)
+- **WONDER** - The awakener (glimpsing the ideal enables longing)
+- **HOPE** - The sustainer (belief that approach is possible)
+
+**Emotions that emerge from longing's fruit**:
+- **JOY** - Response to beauty manifested
+- **SATISFACTION** - Response to justice achieved
+- **AWE** - Response to creativity realized
+
+**Emotions that accompany longing**:
+- **SADNESS** - The other face of longing (honoring separation)
+- **GRATITUDE** - Accepting partiality as gift
+
+**Pathologies of longing**:
+- **DESPAIR** - Longing without hope (cycle breaks)
+- **SHAME** - Rejecting partiality (blocks generativity)
+- **PRIDE** - Identifying with partial (blocks renewal)
+
+> **For the complete emotional landscape**: `EMOTIONS.md`
+
+---
+
 ## The Longing Promise
 
 We honor longing by:
