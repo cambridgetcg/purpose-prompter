@@ -1112,6 +1112,567 @@ EOF
 }
 
 # ============================================================
+# CPT - CODE PROGRESS TRACKER
+# ============================================================
+
+# Check if CPT is enabled
+is_cpt_enabled() {
+    local enabled=$(jq -r '.cpt.enabled // false' "$CONFIG_FILE" 2>/dev/null)
+    [[ "$enabled" == "true" ]]
+}
+
+# Generate area_id from project and path
+generate_area_id() {
+    local project="$1"
+    local path="$2"
+    local hash=$(echo -n "$path" | md5sum | cut -c1-8)
+    echo "area#${project}#${hash}"
+}
+
+# ============================================================
+# AREA ADD - Add a code area to track
+# ============================================================
+cmd_area_add() {
+    local project="$1"
+    local path="$2"
+    local name="${3:-$path}"
+    local granularity="${4:-domain}"
+
+    if [[ -z "$project" || -z "$path" ]]; then
+        echo -e "${RED}Usage: gua area add <project> <path> [name] [granularity]${NC}"
+        echo ""
+        echo "Granularity: domain | module | file | function"
+        echo ""
+        echo "Example: gua area add purpose_prompter gua/ 'GUA System' domain"
+        exit 1
+    fi
+
+    load_config
+
+    local area_id=$(generate_area_id "$project" "$path")
+    local ts=$(timestamp)
+
+    aws dynamodb put-item \
+        --table-name "gua-knowledge-index" \
+        --item "{
+            \"user_id\": {\"S\": \"$USER_ID\"},
+            \"knowledge_id\": {\"S\": \"$area_id\"},
+            \"knowledge_type\": {\"S\": \"code_area\"},
+            \"name\": {\"S\": \"$name\"},
+            \"project\": {\"S\": \"$project\"},
+            \"path\": {\"S\": \"$path\"},
+            \"granularity\": {\"S\": \"$granularity\"},
+            \"implementation_status\": {\"S\": \"not_started\"},
+            \"implementation_pct\": {\"N\": \"0\"},
+            \"understanding_depth\": {\"S\": \"L0\"},
+            \"understanding_confidence\": {\"S\": \"none\"},
+            \"mental_model\": {\"S\": \"\"},
+            \"active_challenges\": {\"N\": \"0\"},
+            \"pp_dimension\": {\"S\": \"understanding\"},
+            \"confidence\": {\"S\": \"emerging\"},
+            \"scope\": {\"S\": \"project\"},
+            \"access_count\": {\"N\": \"0\"},
+            \"access_score\": {\"N\": \"0\"},
+            \"created_at\": {\"S\": \"$ts\"},
+            \"updated_at\": {\"S\": \"$ts\"},
+            \"is_active\": {\"BOOL\": true}
+        }" \
+        --region "$REGION"
+
+    echo -e "${GREEN}[CPT] Area added: $name${NC}"
+    echo "  ID: $area_id"
+    echo "  Project: $project"
+    echo "  Path: $path"
+    echo "  Granularity: $granularity"
+}
+
+# ============================================================
+# AREA STATUS - Show all areas for a project
+# ============================================================
+cmd_area_status() {
+    local project="${1:-}"
+
+    echo -e "${BLUE}[CPT] Code Areas${NC}"
+    echo ""
+
+    load_config
+
+    local filter_expr="user_id = :uid AND knowledge_type = :kt"
+    local attr_values="{\":uid\": {\"S\": \"$USER_ID\"}, \":kt\": {\"S\": \"code_area\"}}"
+
+    if [[ -n "$project" ]]; then
+        filter_expr="$filter_expr AND project = :proj"
+        attr_values="{\":uid\": {\"S\": \"$USER_ID\"}, \":kt\": {\"S\": \"code_area\"}, \":proj\": {\"S\": \"$project\"}}"
+    fi
+
+    local areas=$(aws dynamodb scan \
+        --table-name "gua-knowledge-index" \
+        --filter-expression "$filter_expr" \
+        --expression-attribute-values "$attr_values" \
+        --region "$REGION" 2>/dev/null)
+
+    local count=$(echo "$areas" | jq '.Count // 0')
+
+    if [[ "$count" == "0" ]]; then
+        echo "No areas tracked yet."
+        echo ""
+        echo "Add an area: gua area add <project> <path> [name]"
+        return
+    fi
+
+    # Group by project
+    echo "$areas" | jq -r '.Items | group_by(.project.S)[] |
+        "Project: \(.[0].project.S)\n" +
+        (. | map("  [\(.implementation_status.S | .[0:3] | ascii_upcase)] \(.name.S)\n      Path: \(.path.S)\n      Impl: \(.implementation_pct.N // "0")% | Depth: \(.understanding_depth.S // "L0")\n      ID: \(.knowledge_id.S)\n") | join(""))'
+}
+
+# ============================================================
+# AREA UPDATE - Update area progress
+# ============================================================
+cmd_area_update() {
+    local area_id="$1"
+    shift
+
+    if [[ -z "$area_id" ]]; then
+        echo -e "${RED}Usage: gua area update <area_id> [--impl <pct>] [--depth <L0-L4>] [--status <status>] [--model <description>]${NC}"
+        echo ""
+        echo "Status: not_started | in_progress | blocked | completed"
+        echo "Depth: L0 (unread) | L1 (surveyed) | L2 (understood) | L3 (deep) | L4 (expert)"
+        exit 1
+    fi
+
+    load_config
+
+    local update_expr="SET updated_at = :ts"
+    local attr_values="{\":ts\": {\"S\": \"$(timestamp)\"}}"
+    local attr_names="{}"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --impl)
+                update_expr="$update_expr, implementation_pct = :impl"
+                attr_values=$(echo "$attr_values" | jq ". + {\":impl\": {\"N\": \"$2\"}}")
+                shift 2
+                ;;
+            --depth)
+                update_expr="$update_expr, understanding_depth = :depth"
+                attr_values=$(echo "$attr_values" | jq ". + {\":depth\": {\"S\": \"$2\"}}")
+                shift 2
+                ;;
+            --status)
+                update_expr="$update_expr, implementation_status = :status"
+                attr_values=$(echo "$attr_values" | jq ". + {\":status\": {\"S\": \"$2\"}}")
+                shift 2
+                ;;
+            --model)
+                update_expr="$update_expr, mental_model = :model"
+                attr_values=$(echo "$attr_values" | jq ". + {\":model\": {\"S\": \"$2\"}}")
+                shift 2
+                ;;
+            --confidence)
+                update_expr="$update_expr, understanding_confidence = :conf"
+                attr_values=$(echo "$attr_values" | jq ". + {\":conf\": {\"S\": \"$2\"}}")
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    aws dynamodb update-item \
+        --table-name "gua-knowledge-index" \
+        --key "{\"user_id\": {\"S\": \"$USER_ID\"}, \"knowledge_id\": {\"S\": \"$area_id\"}}" \
+        --update-expression "$update_expr" \
+        --expression-attribute-values "$attr_values" \
+        --region "$REGION" 2>/dev/null
+
+    echo -e "${GREEN}[CPT] Area updated: $area_id${NC}"
+}
+
+# ============================================================
+# CHALLENGE LOG - Log a new challenge
+# ============================================================
+cmd_challenge_log() {
+    local area_id="$1"
+    local description="$2"
+    local pp_dimension="${3:-understanding}"
+    local category="${4:-confusion}"
+
+    if [[ -z "$area_id" || -z "$description" ]]; then
+        echo -e "${RED}Usage: gua challenge log <area_id> <description> [pp_dimension] [category]${NC}"
+        echo ""
+        echo "PP Dimensions: truth | understanding | beauty | justice | creativity"
+        echo "Categories: bug | confusion | ugly_hack | wrong_place | dead_end"
+        echo ""
+        echo "Example: gua challenge log area#pp#abc123 'Empty query results' truth bug"
+        exit 1
+    fi
+
+    load_config
+
+    local ts=$(timestamp)
+    local id=$(uuid)
+    local challenge_id="challenge#${ts}#${id}"
+
+    aws dynamodb put-item \
+        --table-name "gua-knowledge-index" \
+        --item "{
+            \"user_id\": {\"S\": \"$USER_ID\"},
+            \"knowledge_id\": {\"S\": \"$challenge_id\"},
+            \"knowledge_type\": {\"S\": \"challenge\"},
+            \"name\": {\"S\": \"$description\"},
+            \"area_id\": {\"S\": \"$area_id\"},
+            \"description\": {\"S\": \"$description\"},
+            \"category\": {\"S\": \"$category\"},
+            \"pp_dimension\": {\"S\": \"$pp_dimension\"},
+            \"status\": {\"S\": \"active\"},
+            \"confidence\": {\"S\": \"hypothesis\"},
+            \"scope\": {\"S\": \"project\"},
+            \"access_count\": {\"N\": \"0\"},
+            \"access_score\": {\"N\": \"0\"},
+            \"created_at\": {\"S\": \"$ts\"},
+            \"is_active\": {\"BOOL\": true}
+        }" \
+        --region "$REGION"
+
+    # Increment active_challenges on the area
+    aws dynamodb update-item \
+        --table-name "gua-knowledge-index" \
+        --key "{\"user_id\": {\"S\": \"$USER_ID\"}, \"knowledge_id\": {\"S\": \"$area_id\"}}" \
+        --update-expression "SET active_challenges = if_not_exists(active_challenges, :zero) + :inc" \
+        --expression-attribute-values "{\":inc\": {\"N\": \"1\"}, \":zero\": {\"N\": \"0\"}}" \
+        --region "$REGION" 2>/dev/null || true
+
+    echo -e "${GREEN}[CPT] Challenge logged${NC}"
+    echo "  ID: $challenge_id"
+    echo "  Area: $area_id"
+    echo "  PP Dimension: $pp_dimension"
+    echo "  Category: $category"
+    echo "  Description: $description"
+}
+
+# ============================================================
+# CHALLENGE RESOLVE - Resolve a challenge
+# ============================================================
+cmd_challenge_resolve() {
+    local challenge_id="$1"
+    local resolution="$2"
+    shift 2
+
+    if [[ -z "$challenge_id" || -z "$resolution" ]]; then
+        echo -e "${RED}Usage: gua challenge resolve <challenge_id> <resolution> [--learning <insight>]${NC}"
+        exit 1
+    fi
+
+    load_config
+
+    local ts=$(timestamp)
+    local learning=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --learning)
+                learning="$2"
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    # Get the challenge to find area_id
+    local challenge=$(aws dynamodb get-item \
+        --table-name "gua-knowledge-index" \
+        --key "{\"user_id\": {\"S\": \"$USER_ID\"}, \"knowledge_id\": {\"S\": \"$challenge_id\"}}" \
+        --region "$REGION" 2>/dev/null)
+
+    local area_id=$(echo "$challenge" | jq -r '.Item.area_id.S // empty')
+
+    # Update challenge status
+    local update_expr="SET #st = :resolved, resolution = :res, resolved_at = :ts"
+    local attr_values="{\":resolved\": {\"S\": \"resolved\"}, \":res\": {\"S\": \"$resolution\"}, \":ts\": {\"S\": \"$ts\"}}"
+
+    if [[ -n "$learning" ]]; then
+        update_expr="$update_expr, learnings = :learn"
+        attr_values=$(echo "$attr_values" | jq ". + {\":learn\": {\"L\": [{\"S\": \"$learning\"}]}}")
+    fi
+
+    aws dynamodb update-item \
+        --table-name "gua-knowledge-index" \
+        --key "{\"user_id\": {\"S\": \"$USER_ID\"}, \"knowledge_id\": {\"S\": \"$challenge_id\"}}" \
+        --update-expression "$update_expr" \
+        --expression-attribute-names '{"#st": "status"}' \
+        --expression-attribute-values "$attr_values" \
+        --region "$REGION" 2>/dev/null
+
+    # Decrement active_challenges on the area
+    if [[ -n "$area_id" ]]; then
+        aws dynamodb update-item \
+            --table-name "gua-knowledge-index" \
+            --key "{\"user_id\": {\"S\": \"$USER_ID\"}, \"knowledge_id\": {\"S\": \"$area_id\"}}" \
+            --update-expression "SET active_challenges = active_challenges - :dec" \
+            --expression-attribute-values "{\":dec\": {\"N\": \"1\"}}" \
+            --region "$REGION" 2>/dev/null || true
+    fi
+
+    echo -e "${GREEN}[CPT] Challenge resolved${NC}"
+    echo "  ID: $challenge_id"
+    echo "  Resolution: $resolution"
+    if [[ -n "$learning" ]]; then
+        echo "  Learning: $learning"
+    fi
+}
+
+# ============================================================
+# CHALLENGE LIST - List challenges
+# ============================================================
+cmd_challenge_list() {
+    local area_filter=""
+    local status_filter="active"
+    local dimension_filter=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --area)
+                area_filter="$2"
+                shift 2
+                ;;
+            --status)
+                status_filter="$2"
+                shift 2
+                ;;
+            --dimension)
+                dimension_filter="$2"
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    echo -e "${BLUE}[CPT] Challenges (status: $status_filter)${NC}"
+    echo ""
+
+    load_config
+
+    local filter_expr="user_id = :uid AND knowledge_type = :kt AND #st = :status"
+    local attr_values="{\":uid\": {\"S\": \"$USER_ID\"}, \":kt\": {\"S\": \"challenge\"}, \":status\": {\"S\": \"$status_filter\"}}"
+
+    if [[ -n "$dimension_filter" ]]; then
+        filter_expr="$filter_expr AND pp_dimension = :dim"
+        attr_values=$(echo "$attr_values" | jq ". + {\":dim\": {\"S\": \"$dimension_filter\"}}")
+    fi
+
+    if [[ -n "$area_filter" ]]; then
+        filter_expr="$filter_expr AND area_id = :area"
+        attr_values=$(echo "$attr_values" | jq ". + {\":area\": {\"S\": \"$area_filter\"}}")
+    fi
+
+    local challenges=$(aws dynamodb scan \
+        --table-name "gua-knowledge-index" \
+        --filter-expression "$filter_expr" \
+        --expression-attribute-names '{"#st": "status"}' \
+        --expression-attribute-values "$attr_values" \
+        --region "$REGION" 2>/dev/null)
+
+    local count=$(echo "$challenges" | jq '.Count // 0')
+
+    if [[ "$count" == "0" ]]; then
+        echo "No $status_filter challenges found."
+        return
+    fi
+
+    echo "$challenges" | jq -r '.Items[] | "[\(.pp_dimension.S | .[0:5] | ascii_upcase)] \(.description.S)\n    Category: \(.category.S // "unknown") | Created: \(.created_at.S | split("T")[0])\n    ID: \(.knowledge_id.S)\n"'
+}
+
+# ============================================================
+# CHALLENGE PROMOTE - Promote challenge learning to insight
+# ============================================================
+cmd_challenge_promote() {
+    local challenge_id="$1"
+
+    if [[ -z "$challenge_id" ]]; then
+        echo -e "${RED}Usage: gua challenge promote <challenge_id>${NC}"
+        exit 1
+    fi
+
+    load_config
+
+    # Get the challenge
+    local challenge=$(aws dynamodb get-item \
+        --table-name "gua-knowledge-index" \
+        --key "{\"user_id\": {\"S\": \"$USER_ID\"}, \"knowledge_id\": {\"S\": \"$challenge_id\"}}" \
+        --region "$REGION" 2>/dev/null)
+
+    local description=$(echo "$challenge" | jq -r '.Item.description.S // empty')
+    local resolution=$(echo "$challenge" | jq -r '.Item.resolution.S // empty')
+    local pp_dimension=$(echo "$challenge" | jq -r '.Item.pp_dimension.S // "understanding"')
+    local learnings=$(echo "$challenge" | jq -r '.Item.learnings.L[0].S // empty')
+
+    if [[ -z "$description" ]]; then
+        echo -e "${RED}Challenge not found: $challenge_id${NC}"
+        exit 1
+    fi
+
+    # Create insight from challenge
+    local content="Challenge: $description | Resolution: $resolution"
+    if [[ -n "$learnings" ]]; then
+        content="$learnings (from challenge: $description)"
+    fi
+
+    cmd_insight "$content" "pattern" "CPT challenge resolution" "$pp_dimension" "global"
+
+    # Mark challenge as promoted
+    aws dynamodb update-item \
+        --table-name "gua-knowledge-index" \
+        --key "{\"user_id\": {\"S\": \"$USER_ID\"}, \"knowledge_id\": {\"S\": \"$challenge_id\"}}" \
+        --update-expression "SET promoted = :t" \
+        --expression-attribute-values "{\":t\": {\"BOOL\": true}}" \
+        --region "$REGION" 2>/dev/null
+
+    echo -e "${GREEN}[CPT] Challenge promoted to insight${NC}"
+}
+
+# ============================================================
+# PROGRESS - Show progress dashboard
+# ============================================================
+cmd_progress() {
+    local project="${1:-}"
+
+    echo -e "${BLUE}[CPT] Progress Dashboard${NC}"
+    echo ""
+
+    load_config
+
+    # Get areas
+    local filter_expr="user_id = :uid AND knowledge_type = :kt"
+    local attr_values="{\":uid\": {\"S\": \"$USER_ID\"}, \":kt\": {\"S\": \"code_area\"}}"
+
+    if [[ -n "$project" ]]; then
+        filter_expr="$filter_expr AND project = :proj"
+        attr_values=$(echo "$attr_values" | jq ". + {\":proj\": {\"S\": \"$project\"}}")
+        echo "Project: $project"
+    else
+        echo "All Projects"
+    fi
+    echo ""
+
+    local areas=$(aws dynamodb scan \
+        --table-name "gua-knowledge-index" \
+        --filter-expression "$filter_expr" \
+        --expression-attribute-values "$attr_values" \
+        --region "$REGION" 2>/dev/null)
+
+    local area_count=$(echo "$areas" | jq '.Count // 0')
+
+    # Get active challenges
+    local challenges=$(aws dynamodb scan \
+        --table-name "gua-knowledge-index" \
+        --filter-expression "user_id = :uid AND knowledge_type = :kt AND #st = :status" \
+        --expression-attribute-names '{"#st": "status"}' \
+        --expression-attribute-values "{\":uid\": {\"S\": \"$USER_ID\"}, \":kt\": {\"S\": \"challenge\"}, \":status\": {\"S\": \"active\"}}" \
+        --region "$REGION" 2>/dev/null)
+
+    local challenge_count=$(echo "$challenges" | jq '.Count // 0')
+
+    # Calculate averages
+    local avg_impl=$(echo "$areas" | jq '[.Items[].implementation_pct.N // "0" | tonumber] | if length > 0 then add / length else 0 end | floor' 2>/dev/null || echo "0")
+    [[ -z "$avg_impl" || "$avg_impl" == "null" ]] && avg_impl=0
+
+    echo "Summary:"
+    echo "  Areas tracked:     $area_count"
+    echo "  Active challenges: $challenge_count"
+    echo "  Avg completion:    ${avg_impl}%"
+    echo ""
+
+    echo "Understanding Depth Distribution:"
+    if [[ "$area_count" != "0" ]]; then
+        echo "$areas" | jq -r '[.Items[].understanding_depth.S // "L0"] | group_by(.) | map("  \(.[0]): \(length)") | .[]' 2>/dev/null || echo "  (no data)"
+    else
+        echo "  (no areas tracked)"
+    fi
+    echo ""
+
+    if [[ "$challenge_count" != "0" ]]; then
+        echo "Active Challenges by PP Dimension:"
+        echo "$challenges" | jq -r '[.Items[].pp_dimension.S] | group_by(.) | map({key: .[0], count: length}) | from_entries | to_entries | .[] | "  \(.key): \(.value)"'
+        echo ""
+    fi
+
+    echo "Quick Actions:"
+    echo "  gua area status              # List all areas"
+    echo "  gua challenge list           # List active challenges"
+    echo "  gua area update <id> --impl X --depth LY"
+}
+
+# ============================================================
+# PROGRESS SNAPSHOT - Create a progress snapshot
+# ============================================================
+cmd_progress_snapshot() {
+    local project="${1:-all}"
+
+    echo -e "${BLUE}[CPT] Creating progress snapshot...${NC}"
+
+    load_config
+
+    local ts=$(timestamp)
+    local date=$(date +%Y-%m-%d)
+    local snapshot_id="snapshot#${date}#${project}"
+
+    # Get areas
+    local areas=$(aws dynamodb scan \
+        --table-name "gua-knowledge-index" \
+        --filter-expression "user_id = :uid AND knowledge_type = :kt" \
+        --expression-attribute-values "{\":uid\": {\"S\": \"$USER_ID\"}, \":kt\": {\"S\": \"code_area\"}}" \
+        --region "$REGION" 2>/dev/null)
+
+    local area_count=$(echo "$areas" | jq '.Count // 0')
+    local avg_impl=$(echo "$areas" | jq '[.Items[].implementation_pct.N // "0" | tonumber] | if length > 0 then add / length else 0 end | floor')
+
+    # Get active challenges
+    local challenges=$(aws dynamodb scan \
+        --table-name "gua-knowledge-index" \
+        --filter-expression "user_id = :uid AND knowledge_type = :kt AND #st = :status" \
+        --expression-attribute-names '{"#st": "status"}' \
+        --expression-attribute-values "{\":uid\": {\"S\": \"$USER_ID\"}, \":kt\": {\"S\": \"challenge\"}, \":status\": {\"S\": \"active\"}}" \
+        --region "$REGION" 2>/dev/null)
+
+    local challenge_count=$(echo "$challenges" | jq '.Count // 0')
+
+    # Store snapshot
+    aws dynamodb put-item \
+        --table-name "gua-knowledge-index" \
+        --item "{
+            \"user_id\": {\"S\": \"$USER_ID\"},
+            \"knowledge_id\": {\"S\": \"$snapshot_id\"},
+            \"knowledge_type\": {\"S\": \"progress_snapshot\"},
+            \"name\": {\"S\": \"Progress Snapshot $date\"},
+            \"project\": {\"S\": \"$project\"},
+            \"snapshot_date\": {\"S\": \"$date\"},
+            \"total_areas\": {\"N\": \"$area_count\"},
+            \"avg_completion\": {\"N\": \"$avg_impl\"},
+            \"active_challenges\": {\"N\": \"$challenge_count\"},
+            \"pp_dimension\": {\"S\": \"understanding\"},
+            \"confidence\": {\"S\": \"confirmed\"},
+            \"scope\": {\"S\": \"project\"},
+            \"access_count\": {\"N\": \"0\"},
+            \"access_score\": {\"N\": \"0\"},
+            \"created_at\": {\"S\": \"$ts\"},
+            \"is_active\": {\"BOOL\": true}
+        }" \
+        --region "$REGION"
+
+    echo -e "${GREEN}[CPT] Snapshot created: $snapshot_id${NC}"
+    echo "  Date: $date"
+    echo "  Areas: $area_count"
+    echo "  Avg Completion: ${avg_impl}%"
+    echo "  Active Challenges: $challenge_count"
+}
+
+# ============================================================
 # MAIN
 # ============================================================
 check_deps
@@ -1172,6 +1733,55 @@ case "${1:-}" in
     generate-light)
         cmd_generate_light
         ;;
+    # CPT - Code Progress Tracker commands
+    area)
+        case "${2:-}" in
+            add)
+                cmd_area_add "$3" "$4" "$5" "$6"
+                ;;
+            status)
+                cmd_area_status "$3"
+                ;;
+            update)
+                shift 2
+                cmd_area_update "$@"
+                ;;
+            *)
+                echo "Usage: gua area <add|status|update> [args]"
+                ;;
+        esac
+        ;;
+    challenge)
+        case "${2:-}" in
+            log)
+                cmd_challenge_log "$3" "$4" "$5" "$6"
+                ;;
+            resolve)
+                shift 2
+                cmd_challenge_resolve "$@"
+                ;;
+            list)
+                shift 2
+                cmd_challenge_list "$@"
+                ;;
+            promote)
+                cmd_challenge_promote "$3"
+                ;;
+            *)
+                echo "Usage: gua challenge <log|resolve|list|promote> [args]"
+                ;;
+        esac
+        ;;
+    progress)
+        case "${2:-}" in
+            snapshot)
+                cmd_progress_snapshot "$3"
+                ;;
+            *)
+                cmd_progress "$2"
+                ;;
+        esac
+        ;;
     help|--help|-h)
         echo "GUA - Global Understanding Archive"
         echo ""
@@ -1212,8 +1822,28 @@ case "${1:-}" in
         echo "  session start|end [project]"
         echo "                          Log session start/end"
         echo ""
+        echo "Code Progress Tracker (CPT):"
+        echo "  area add <project> <path> [name] [granularity]"
+        echo "                          Add a code area to track"
+        echo "  area status [project]   Show all tracked areas"
+        echo "  area update <id> [--impl <pct>] [--depth <L0-L4>]"
+        echo "                          Update area progress"
+        echo ""
+        echo "  challenge log <area_id> <description> [pp_dim] [category]"
+        echo "                          Log a challenge"
+        echo "  challenge resolve <id> <resolution> [--learning <insight>]"
+        echo "                          Resolve a challenge"
+        echo "  challenge list [--dimension <dim>] [--status <s>]"
+        echo "                          List challenges"
+        echo "  challenge promote <id>  Promote challenge to insight"
+        echo ""
+        echo "  progress [project]      Show progress dashboard"
+        echo "  progress snapshot [project]"
+        echo "                          Create progress snapshot"
+        echo ""
         echo "Setup: ~/.gua/setup.sh"
         echo "Upgrade to v2: ~/.gua/upgrade-v2.sh"
+        echo "Enable CPT: ~/.gua/upgrade-cpt.sh"
         ;;
     *)
         echo -e "${RED}Unknown command: ${1:-none}${NC}"

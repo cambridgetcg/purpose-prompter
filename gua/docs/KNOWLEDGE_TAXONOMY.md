@@ -1,7 +1,8 @@
 # Knowledge Taxonomy Architecture
 
-> **Version**: 1.0
+> **Version**: 2.0 (CPT)
 > **Created**: 2026-01-27
+> **Updated**: 2026-01-27 (Added CPT entities)
 > **Purpose**: Define how GUA categorizes, stores, and grows knowledge over time
 
 ---
@@ -48,6 +49,9 @@ Every piece of knowledge in GUA exists in a 5-dimensional space:
 | `technique` | Specific method or procedure | "To achieve X, do A, B, C" |
 | `principle` | Guiding rule or truth | "X leads to Y" |
 | `model` | Mental framework | "Think of X as Y" |
+| `code_area` | Tracked code region (CPT) | Implementation + understanding |
+| `challenge` | Problem encountered (CPT) | PP dimension mapping |
+| `progress_snapshot` | Point-in-time state (CPT) | Daily progress capture |
 
 ### Dimension 5: Temporal Status
 
@@ -101,6 +105,106 @@ Level 4: EXAMPLES
 | L1 → L2 | 2+ observations, clear evidence | Auto during `/integrate` |
 | L2 → L3 | 5+ observations, edge cases found | Manual `/integrate deep` |
 | L3 → L4 | Critical path, examples exist | Manual creation |
+
+---
+
+## CPT Entities (Code Progress Tracker)
+
+CPT extends GUA with code-specific knowledge types for tracking implementation progress and understanding depth across sessions.
+
+### Code Area Entity
+
+Tracks a region of code with granular progress and understanding metrics.
+
+```json
+{
+  "knowledge_type": "code_area",
+  "knowledge_id": "area#{project}#{path_hash}",
+  "project": "purpose_prompter",
+  "path": "gua/",
+  "name": "GUA System",
+  "granularity": "domain",
+  "implementation_status": "in_progress",
+  "implementation_pct": 75,
+  "understanding_depth": "L3",
+  "understanding_confidence": "high",
+  "mental_model": "Shell CLI + DynamoDB for persistent knowledge",
+  "active_challenges": 0,
+  "last_touched": "2026-01-27T12:00:00Z"
+}
+```
+
+**Granularity Levels**:
+| Level | Use When | Examples |
+|-------|----------|----------|
+| `domain` | Tracking broad areas | `gua/`, `pp/`, `auth/` |
+| `module` | Specific components | `gua/cli/`, `auth/oauth/` |
+| `file` | Complex individual files | `gua.sh`, `auth.ts` |
+| `function` | Critical functions | `cmd_load_active_set` |
+
+**Understanding Depth Levels**:
+| Level | Name | Meaning |
+|-------|------|---------|
+| L0 | Unread | Never looked at this code |
+| L1 | Surveyed | Know it exists, rough purpose |
+| L2 | Understood | Know structure and flow |
+| L3 | Deep | Know edge cases and why |
+| L4 | Expert | Could refactor confidently |
+
+### Challenge Entity
+
+Tracks problems encountered during development with PP dimension mapping for root cause analysis.
+
+```json
+{
+  "knowledge_type": "challenge",
+  "knowledge_id": "challenge#{timestamp}#{uuid}",
+  "area_id": "area#purpose_prompter#abc123",
+  "description": "Empty query returns when index not populated",
+  "category": "bug",
+  "pp_dimension": "truth",
+  "status": "active",
+  "resolution": null,
+  "learnings": [],
+  "time_spent_mins": 0,
+  "promotes_to": null
+}
+```
+
+**Challenge → PP Dimension Mapping**:
+| Category | PP Dimension | Root Cause Question |
+|----------|--------------|---------------------|
+| `bug` | TRUTH | "What did I assume that was wrong?" |
+| `confusion` | UNDERSTANDING | "What don't I understand about this?" |
+| `ugly_hack` | BEAUTY | "Why doesn't this solution fit?" |
+| `wrong_place` | JUSTICE | "Where should this actually live?" |
+| `dead_end` | CREATIVITY | "What new structure is needed?" |
+
+### Progress Snapshot Entity
+
+Captures point-in-time state for trend analysis.
+
+```json
+{
+  "knowledge_type": "progress_snapshot",
+  "knowledge_id": "snapshot#{date}#{project}",
+  "date": "2026-01-27",
+  "project": "purpose_prompter",
+  "area_count": 5,
+  "avg_implementation": 65,
+  "challenge_count": 2,
+  "depth_distribution": {"L0": 1, "L1": 1, "L2": 2, "L3": 1},
+  "areas_snapshot": [...]
+}
+```
+
+### CPT → GUA Integration
+
+Challenges can be **promoted** to GUA insights when resolved:
+1. Resolved challenge has valuable learning
+2. Use `gua challenge promote <id>`
+3. Learning becomes a pattern/technique in GUA
+4. Cross-project patterns emerge from repeated challenges
 
 ---
 
@@ -178,15 +282,24 @@ s3://gua-knowledge-store-{user}/
     └── ...
 ```
 
-### DynamoDB Tables (unchanged)
+### DynamoDB Tables
+
+**Primary Table** (v2):
+- `gua-knowledge-index`: Unified knowledge storage with GSIs
+  - Primary Key: `user_id` (PK), `knowledge_id` (SK)
+  - GSI: `pp-dimension-index` (user_id, pp_dimension)
+  - GSI: `access-score-index` (user_id, access_score)
+  - GSI: `project-status-index` (project, implementation_status) - CPT
+
+**Legacy Tables** (for reference):
 - `gua-insights`: Raw insight entries (pre-synthesis)
 - `gua-research`: Raw research findings
 - `gua-feedback`: Session feedback
 - `gua-sessions`: Session metadata
 
 **Division of Labor**:
-- DynamoDB = Raw, timestamped entries
-- S3 = Synthesized, structured knowledge documents
+- DynamoDB = Indexed knowledge, CPT tracking, raw entries
+- S3 = Synthesized documents, full pattern content
 
 ---
 
@@ -277,12 +390,36 @@ Deprecated knowledge moves to historical section, never deleted.
 
 ## Implementation Commands
 
-### Current Commands (to extend)
+### GUA Commands
 ```
-/gua-insight <content>              # Capture raw insight
-/gua-research <topic> <finding>     # Capture research
-/gua-context [mode]                 # Load context
-/gua-sync [action]                  # Sync with AWS
+gua load                            # Load active set into session
+gua save                            # Save session state
+gua search <query>                  # Search knowledge
+gua fetch <id>                      # Fetch pattern by ID
+gua active-set                      # Show active patterns
+gua insight <content>               # Capture insight
+```
+
+### CPT Commands (Code Progress Tracker)
+```
+gua area add <project> <path> [name] [granularity]
+gua area status [project]           # List tracked areas
+gua area update <id> --impl X --depth LY --status S
+
+gua challenge log <area_id> <description> [pp_dim] [category]
+gua challenge resolve <id> <resolution> --learning <insight>
+gua challenge list [--status S] [--dimension D]
+gua challenge promote <id>          # Promote to GUA insight
+
+gua progress [project]              # Show progress dashboard
+gua progress snapshot [project]     # Create daily snapshot
+```
+
+### Plugin Commands
+```
+/cpt-area <add|status|update|understand>
+/cpt-challenge <description|resolve:id|list|promote:id>
+/cpt-context [overview|challenges|gaps]
 ```
 
 ### Future Commands (to implement)
@@ -290,7 +427,6 @@ Deprecated knowledge moves to historical section, never deleted.
 /gua-context domain:<domain>        # Load domain-specific
 /gua-context dimension:<dim>        # Load PP dimension
 /gua-context deep:<pattern>         # Load deep file
-/gua-promote <insight-id>           # Promote insight to knowledge
 /gua-relate <pattern1> <pattern2>   # Create relation
 /gua-review [stale|all]             # Review knowledge health
 ```
@@ -334,7 +470,23 @@ Deprecated knowledge moves to historical section, never deleted.
 | Confidence | hypothesis, emerging, confirmed, deprecated |
 | Scope | global, domain, project, personal |
 | Type | pattern, anti-pattern, blindspot, technique, principle, model |
+| CPT Types | code_area, challenge, progress_snapshot |
 | Temporal | timeless, current, evolving, historical |
+
+| CPT Granularity | Use When |
+|-----------------|----------|
+| domain | Tracking broad areas |
+| module | Specific components |
+| file | Complex individual files |
+| function | Critical functions |
+
+| Challenge Category | PP Dimension |
+|--------------------|--------------|
+| bug | truth |
+| confusion | understanding |
+| ugly_hack | beauty |
+| wrong_place | justice |
+| dead_end | creativity |
 
 | Depth | Content | Location |
 |-------|---------|----------|
