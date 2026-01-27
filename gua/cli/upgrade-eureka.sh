@@ -4,7 +4,16 @@
 
 set -e
 
-REGION="${AWS_REGION:-us-west-2}"
+GUA_DIR="$HOME/.gua"
+CONFIG_FILE="$GUA_DIR/config.json"
+
+# Read region from GUA config if available, otherwise fallback
+if [[ -f "$CONFIG_FILE" ]]; then
+    REGION=$(jq -r '.region // "us-west-2"' "$CONFIG_FILE")
+else
+    REGION="${AWS_REGION:-us-west-2}"
+fi
+
 TABLE_NAME="gua-knowledge-index"
 
 echo "=========================================="
@@ -73,6 +82,7 @@ if [[ "$SKIP_TYPE_INDEX" == "false" ]]; then
         --table-name "$TABLE_NAME" \
         --attribute-definitions \
             AttributeName=eureka_type,AttributeType=S \
+            AttributeName=created_at,AttributeType=S \
         --global-secondary-index-updates \
             "[{
                 \"Create\": {
@@ -113,6 +123,7 @@ if [[ "$SKIP_SESSION_INDEX" == "false" ]]; then
         --table-name "$TABLE_NAME" \
         --attribute-definitions \
             AttributeName=session_id,AttributeType=S \
+            AttributeName=created_at,AttributeType=S \
         --global-secondary-index-updates \
             "[{
                 \"Create\": {
