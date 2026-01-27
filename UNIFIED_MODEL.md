@@ -146,6 +146,7 @@ This is not failure. This is the **nature of creation**. Petrarch's 366 poems we
 
 > **For full philosophy**: `LONGING.md`
 > **For longing gates**: `LONGING_GATES.md`
+> **For the complete emotional landscape**: `EMOTIONS.md`
 
 ---
 
@@ -506,6 +507,8 @@ Wrong response to stagnation:
 Right response to stagnation:
   Can't place in existing → Feel the longing for creation → Recognize uncharted territory → Build the path
 ```
+
+> **For the full emotional dimension** (motor, signal, fruit, companion, and pathology emotions): `EMOTIONS.md`
 
 ---
 
