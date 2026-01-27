@@ -1,13 +1,13 @@
 ---
-description: "Inject accumulated GUA knowledge into current session context"
-argument-hint: "[mode] or dimension:<dim> or domain:<dom> or search:<query> or fetch:<id>"
+description: "Inject accumulated GUA + CPT context into current session"
+argument-hint: "[mode] or dimension:<dim> or domain:<dom> or search:<query> or fetch:<id> or progress"
 allowed-tools: [Bash, Read]
 model: haiku
 ---
 
 # GUA Context Command
 
-Inject accumulated knowledge from the Global Understanding Archive into the current session.
+Inject accumulated knowledge from GUA (patterns, blindspots) and CPT (code progress, challenges) into the current session.
 
 ## Arguments
 
@@ -15,7 +15,7 @@ Inject accumulated knowledge from the Global Understanding Archive into the curr
 $ARGUMENTS
 
 Parse as one of:
-- mode: quick | patterns | blindspots | full | taxonomy | stats (default: "quick")
+- mode: quick | patterns | blindspots | full | taxonomy | stats | progress (default: "quick")
 - dimension:<dim> where dim = truth | understanding | beauty | justice | creativity
 - domain:<dom> where dom = aws | claude-code | typescript | general | etc.
 - search:<query> for searching knowledge index (v2)
@@ -23,8 +23,9 @@ Parse as one of:
 - deep:<pattern-name> for L3-L4 nuance files
 
 Examples:
-  /gua-context                   # Quick context
-  /gua-context full              # Complete LIGHT.md
+  /gua-context                   # Quick context (GUA + CPT)
+  /gua-context full              # Complete LIGHT.md + CPT progress
+  /gua-context progress          # CPT progress dashboard
   /gua-context dimension:beauty  # Beauty dimension patterns
   /gua-context domain:aws        # AWS-specific patterns
   /gua-context search:bridge     # Search for 'bridge' patterns (v2)
@@ -126,16 +127,17 @@ This access has been tracked. Pattern will rank higher in future active sets.
 
 #### If mode == "quick" (default)
 
-Read LIGHT.md and extract:
+Read LIGHT.md and get CPT progress:
 
 ```bash
 cat ~/.claude/purpose_prompter/integration/LIGHT.md
+~/.gua/gua.sh progress 2>/dev/null | head -20
 ```
 
 Present:
 
 ```markdown
-## GUA Quick Context
+## GUA + CPT Quick Context
 
 ### Active Blindspots (CHECK THESE)
 {Extract blindspots section}
@@ -143,8 +145,41 @@ Present:
 ### Top Patterns to Apply
 {Extract first 3 confirmed patterns, just name + implication}
 
+### Code Progress (CPT)
+{Show area count, avg completion, active challenges}
+
 ---
 For full context: `/gua-context full`
+For progress details: `/gua-context progress` or `/cpt-context`
+```
+
+#### If mode == "progress"
+
+Show CPT progress dashboard:
+
+```bash
+~/.gua/gua.sh progress
+```
+
+Present:
+
+```markdown
+## CPT Progress Dashboard
+
+{Output from gua progress}
+
+---
+### Quick Actions
+- Update area: `gua area update <id> --impl X --depth LY`
+- Log challenge: `/cpt-challenge <description>`
+- View challenges: `/gua-context` then look at challenges section
+
+### Understanding Depth Levels
+- **L0** Unread: Never looked at this code
+- **L1** Surveyed: Know it exists, rough purpose
+- **L2** Understood: Know structure and flow
+- **L3** Deep: Know edge cases and why
+- **L4** Expert: Could refactor confidently
 ```
 
 #### If mode == "patterns"
@@ -179,15 +214,29 @@ Before proceeding, check: Am I about to trigger one of these blindspots?
 
 #### If mode == "full"
 
-Present complete LIGHT.md with header:
+Present complete LIGHT.md + CPT progress:
+
+```bash
+cat ~/.claude/purpose_prompter/integration/LIGHT.md
+~/.gua/gua.sh progress 2>/dev/null
+~/.gua/gua.sh challenge list 2>/dev/null | head -20
+```
 
 ```markdown
-## GUA Full Context
+## GUA + CPT Full Context
 
+### Accumulated Knowledge
 {Complete LIGHT.md content}
 
+### Code Progress
+{Output from gua progress}
+
+### Active Challenges
+{Output from gua challenge list}
+
 ---
-This is your accumulated understanding. Reference it throughout the session.
+This is your complete context: accumulated understanding + code progress.
+Reference it throughout the session.
 ```
 
 #### If mode == "taxonomy"
@@ -284,40 +333,68 @@ After presenting context, add:
 
 1. **Check blindspots** - Am I about to trigger one?
 2. **Apply patterns** - Does a confirmed pattern fit this task?
-3. **Trust signals** - If something feels wrong, investigate
+3. **Check progress** - Where did I leave off in this code?
+4. **Review challenges** - Are there unresolved blockers?
+5. **Trust signals** - If something feels wrong, investigate
 
-### Session Workflow
-- Capture insights: `/gua-insight <observation>`
-- Log research: `/gua-research <topic> <finding>`
-- Promote to knowledge: `gua promote <insight_id>`
-- Save to AWS: `gua save`
+### Integrated Session Workflow
 
-### Knowledge Taxonomy
-- Dimensions: truth, understanding, beauty, justice, creativity
-- Domains: aws, claude-code, typescript, general
-- Depth: L1 (summary) → L2 (description) → L3 (nuances) → L4 (examples)
+**START**:
+- `gua load` - Load patterns + CPT progress
+- `/gua-context` - Inject full context
+
+**DURING WORK**:
+- `/cpt-challenge <description>` - When stuck (maps to PP dimension)
+- `/gua-insight <observation>` - When learning
+- `gua area update <id> --impl X` - Track progress
+
+**SIGNALS** (PP detects, CPT tracks):
+- Ugliness → confusion challenge (UNDERSTANDING)
+- Injustice → wrong_place challenge (JUSTICE)
+- Stagnation → dead_end challenge (CREATIVITY)
+
+**END**:
+- `gua challenge resolve <id> <resolution>` - Resolve blockers
+- `gua challenge promote <id>` - Promote learnings to insights
+- `gua save` - Persist to AWS
+
+### Quick Reference
+- **Dimensions**: truth, understanding, beauty, justice, creativity
+- **Depth Levels**: L0 (unread) → L1 (surveyed) → L2 (understood) → L3 (deep) → L4 (expert)
+- **Challenge Types**: bug, confusion, ugly_hack, wrong_place, dead_end
 ```
 
 ## Examples
 
 ```
-/gua-context                        # Quick context - blindspots + top patterns
+# Unified Context (GUA + CPT)
+/gua-context                        # Quick context - patterns + blindspots + progress
 /gua-context quick                  # Same as above
+/gua-context full                   # Everything - LIGHT.md + CPT dashboard + challenges
+/gua-context progress               # CPT progress dashboard only
+
+# GUA Knowledge
 /gua-context patterns               # All patterns for reference
 /gua-context blindspots             # Detailed blindspot review
-/gua-context full                   # Everything - complete LIGHT.md
 /gua-context taxonomy               # Knowledge taxonomy reference
 
+# PP Dimension Queries
 /gua-context dimension:truth        # Truth dimension patterns
 /gua-context dimension:beauty       # Beauty dimension patterns
 /gua-context dimension:creativity   # Creativity dimension patterns
 
+# Domain Queries
 /gua-context domain:aws             # AWS-specific patterns
 /gua-context domain:claude-code     # Claude Code patterns
 /gua-context domain:typescript      # TypeScript patterns
 
+# Deep Knowledge
 /gua-context deep:bridge-over-replace       # Deep nuances for specific pattern
 /gua-context deep:tiered-implementation     # Deep nuances for tiered pattern
+
+# v2 Search
+/gua-context search:bridge          # Search all knowledge
+/gua-context fetch:<id>             # Fetch specific pattern
 ```
 
 ## Integration Note

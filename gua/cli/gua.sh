@@ -209,6 +209,49 @@ EOF
     fi
 
     echo -e "${GREEN}[GUA] Active set loaded (${pattern_count:-0} patterns, ${blindspot_count:-0} blindspots)${NC}"
+
+    # Include CPT summary if enabled
+    if is_cpt_enabled 2>/dev/null; then
+        echo ""
+
+        # Get CPT stats
+        local areas=$(aws dynamodb scan \
+            --table-name "gua-knowledge-index" \
+            --filter-expression "user_id = :uid AND knowledge_type = :kt" \
+            --expression-attribute-values "{\":uid\": {\"S\": \"$USER_ID\"}, \":kt\": {\"S\": \"code_area\"}}" \
+            --select "COUNT" \
+            --region "$REGION" 2>/dev/null)
+
+        local area_count=$(echo "$areas" | jq '.Count // 0' 2>/dev/null || echo "0")
+
+        local challenges=$(aws dynamodb scan \
+            --table-name "gua-knowledge-index" \
+            --filter-expression "user_id = :uid AND knowledge_type = :kt AND #st = :status" \
+            --expression-attribute-names '{"#st": "status"}' \
+            --expression-attribute-values "{\":uid\": {\"S\": \"$USER_ID\"}, \":kt\": {\"S\": \"challenge\"}, \":status\": {\"S\": \"active\"}}" \
+            --select "COUNT" \
+            --region "$REGION" 2>/dev/null)
+
+        local challenge_count=$(echo "$challenges" | jq '.Count // 0' 2>/dev/null || echo "0")
+
+        # Get areas for avg calculation and gaps
+        local area_data=$(aws dynamodb scan \
+            --table-name "gua-knowledge-index" \
+            --filter-expression "user_id = :uid AND knowledge_type = :kt" \
+            --expression-attribute-values "{\":uid\": {\"S\": \"$USER_ID\"}, \":kt\": {\"S\": \"code_area\"}}" \
+            --region "$REGION" 2>/dev/null)
+
+        local avg_impl=$(echo "$area_data" | jq '[.Items[].implementation_pct.N // "0" | tonumber] | if length > 0 then add / length else 0 end | floor' 2>/dev/null || echo "0")
+        local gaps=$(echo "$area_data" | jq '[.Items[] | select(.understanding_depth.S == "L0" or .understanding_depth.S == "L1")] | length' 2>/dev/null || echo "0")
+
+        echo -e "${BLUE}[CPT] Progress: ${area_count} areas, ${avg_impl}% avg completion${NC}"
+        if [[ "$challenge_count" != "0" ]]; then
+            echo -e "      ${YELLOW}Active challenges: ${challenge_count}${NC}"
+        fi
+        if [[ "$gaps" != "0" && "$gaps" != "null" ]]; then
+            echo -e "      Understanding gaps: ${gaps} area(s) at L0-L1"
+        fi
+    fi
 }
 
 # ============================================================
