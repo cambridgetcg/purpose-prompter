@@ -1,6 +1,6 @@
 ---
 description: "Inject accumulated GUA knowledge into current session context"
-argument-hint: "[mode] or dimension:<dim> or domain:<dom> or deep:<pattern>"
+argument-hint: "[mode] or dimension:<dim> or domain:<dom> or search:<query> or fetch:<id>"
 allowed-tools: [Bash, Read]
 model: haiku
 ---
@@ -15,9 +15,11 @@ Inject accumulated knowledge from the Global Understanding Archive into the curr
 $ARGUMENTS
 
 Parse as one of:
-- mode: quick | patterns | blindspots | full | taxonomy (default: "quick")
+- mode: quick | patterns | blindspots | full | taxonomy | stats (default: "quick")
 - dimension:<dim> where dim = truth | understanding | beauty | justice | creativity
 - domain:<dom> where dom = aws | claude-code | typescript | general | etc.
+- search:<query> for searching knowledge index (v2)
+- fetch:<id> for fetching specific pattern by ID (v2)
 - deep:<pattern-name> for L3-L4 nuance files
 
 Examples:
@@ -25,6 +27,8 @@ Examples:
   /gua-context full              # Complete LIGHT.md
   /gua-context dimension:beauty  # Beauty dimension patterns
   /gua-context domain:aws        # AWS-specific patterns
+  /gua-context search:bridge     # Search for 'bridge' patterns (v2)
+  /gua-context fetch:pattern-bridge-over-replace  # Fetch specific pattern (v2)
   /gua-context deep:bridge-over-replace  # Deep nuances
 ```
 
@@ -50,6 +54,10 @@ Otherwise → Standard mode (quick/patterns/blindspots/full/taxonomy)
 ## Step 2: ENSURE GUA Data is Fresh
 
 ```bash
+# Check if v2 is configured
+VERSION=$(jq -r '.version // "1.0"' ~/.gua/config.json 2>/dev/null || echo "1.0")
+echo "GUA Version: $VERSION"
+
 # Check last load time
 LAST_LOAD=$(jq -r '.last_load // "never"' ~/.gua/state.json 2>/dev/null || echo "never")
 echo "Last GUA load: $LAST_LOAD"
@@ -61,6 +69,58 @@ fi
 ```
 
 ## Step 3: EXECUTE Based on Query Type
+
+### v2 Scalable Queries
+
+#### If mode == "stats"
+
+Show knowledge index statistics (v2 only):
+
+```bash
+~/.gua/gua.sh index-stats
+```
+
+#### If query starts with "search:"
+
+Search the knowledge index for matching patterns:
+
+```bash
+# Extract query term after "search:"
+QUERY="${ARGUMENTS#search:}"
+~/.gua/gua.sh search "$QUERY"
+```
+
+Present results as:
+
+```markdown
+## GUA Search Results: {query}
+
+{Output from gua search}
+
+---
+To fetch full details: `/gua-context fetch:<knowledge_id>`
+```
+
+#### If query starts with "fetch:"
+
+Fetch a specific pattern by ID (automatically tracks access):
+
+```bash
+# Extract ID after "fetch:"
+ID="${ARGUMENTS#fetch:}"
+~/.gua/gua.sh fetch "$ID"
+```
+
+Present full pattern content with:
+
+```markdown
+## GUA Pattern Details
+
+{Output from gua fetch}
+
+---
+This access has been tracked. Pattern will rank higher in future active sets.
+```
 
 ### Standard Modes
 
@@ -267,3 +327,15 @@ This command reads from local files that are synced from AWS. To ensure freshnes
 2. Run `gua save` at session end
 3. Use `/gua-context` whenever you need to reference accumulated knowledge
 4. Use `/gua-context taxonomy` to review the knowledge structure
+
+### v2 Scalable Architecture (Recommended)
+
+If v2 is configured (run `~/.gua/upgrade-v2.sh` to upgrade), additional features are available:
+
+1. **Smart Loading**: `gua load` loads only the active set (top patterns + active blindspots)
+2. **Search**: `/gua-context search:<query>` searches the knowledge index
+3. **On-Demand Fetch**: `/gua-context fetch:<id>` fetches specific patterns
+4. **Access Tracking**: Every fetch automatically tracks access, improving future recommendations
+5. **Index Stats**: `/gua-context stats` shows knowledge distribution
+
+v2 scales to thousands of patterns while keeping session startup fast.
