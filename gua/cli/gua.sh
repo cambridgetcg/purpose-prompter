@@ -1716,6 +1716,379 @@ cmd_progress_snapshot() {
 }
 
 # ============================================================
+# EUREKA - Capture "Ahh Hah" Moments
+# ============================================================
+
+# Eureka types: connection, resolution, pattern, constraint, reframe, simplify, counter_intuitive
+
+# ============================================================
+# EUREKA LOG - Log an eureka moment
+# ============================================================
+cmd_eureka_log() {
+    local content="$1"
+    local eureka_type="${2:-resolution}"
+    local catalyst="${3:-}"
+    local task_context="${4:-}"
+
+    if [[ -z "$content" ]]; then
+        echo -e "${RED}Usage: gua eureka log <content> [type] [catalyst] [task_context]${NC}"
+        echo ""
+        echo "Types: connection | resolution | pattern | constraint | reframe | simplify | counter_intuitive"
+        echo ""
+        echo "Examples:"
+        echo "  gua eureka log 'Challenges are immature insights' connection 'Reading gua-insight.md'"
+        echo "  gua eureka log 'The null was from the filter' resolution"
+        echo "  gua eureka log 'All three failures have same root' pattern"
+        exit 1
+    fi
+
+    load_config
+
+    local ts=$(timestamp)
+    local id=$(uuid | cut -c1-8)
+    local eureka_id="eureka#${ts}#${id}"
+
+    # Infer PP dimension from eureka type
+    local pp_dimension="understanding"
+    case "$eureka_type" in
+        connection|reframe)
+            pp_dimension="understanding"
+            ;;
+        resolution|constraint|counter_intuitive)
+            pp_dimension="truth"
+            ;;
+        pattern|simplify)
+            pp_dimension="beauty"
+            ;;
+    esac
+
+    # Get current session if exists
+    local session_id=""
+    if [[ -f "$GUA_DIR/current_session" ]]; then
+        session_id=$(cat "$GUA_DIR/current_session")
+    fi
+
+    # Create one-liner summary
+    local one_liner=$(echo "$content" | cut -c1-100)
+
+    aws dynamodb put-item \
+        --table-name "gua-knowledge-index" \
+        --item "{
+            \"user_id\": {\"S\": \"$USER_ID\"},
+            \"knowledge_id\": {\"S\": \"$eureka_id\"},
+            \"knowledge_type\": {\"S\": \"eureka_moment\"},
+            \"name\": {\"S\": \"$one_liner\"},
+            \"content\": {\"S\": \"$content\"},
+            \"eureka_type\": {\"S\": \"$eureka_type\"},
+            \"one_liner\": {\"S\": \"$one_liner\"},
+            \"catalyst\": {\"S\": \"${catalyst:-unknown}\"},
+            \"task_context\": {\"S\": \"${task_context:-}\"},
+            \"pp_dimension\": {\"S\": \"$pp_dimension\"},
+            \"thinking_phase\": {\"S\": \"mid\"},
+            \"session_id\": {\"S\": \"${session_id:-none}\"},
+            \"confidence\": {\"S\": \"immediate\"},
+            \"scope\": {\"S\": \"global\"},
+            \"access_count\": {\"N\": \"0\"},
+            \"access_score\": {\"N\": \"0\"},
+            \"promoted\": {\"BOOL\": false},
+            \"created_at\": {\"S\": \"$ts\"},
+            \"is_active\": {\"BOOL\": true}
+        }" \
+        --region "$REGION"
+
+    echo -e "${GREEN}[EUREKA] Ahh hah moment captured!${NC}"
+    echo "  ID: $eureka_id"
+    echo "  Type: $eureka_type"
+    echo "  Dimension: $pp_dimension"
+    echo "  Content: $content"
+    if [[ -n "$catalyst" ]]; then
+        echo "  Catalyst: $catalyst"
+    fi
+}
+
+# ============================================================
+# EUREKA LIST - List eureka moments
+# ============================================================
+cmd_eureka_list() {
+    local type_filter=""
+    local session_filter=""
+    local limit=10
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --type)
+                type_filter="$2"
+                shift 2
+                ;;
+            --session)
+                session_filter="$2"
+                shift 2
+                ;;
+            --limit)
+                limit="$2"
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    echo -e "${BLUE}[EUREKA] Recent Ahh Hah Moments${NC}"
+    echo ""
+
+    load_config
+
+    local filter_expr="user_id = :uid AND knowledge_type = :kt"
+    local attr_values="{\":uid\": {\"S\": \"$USER_ID\"}, \":kt\": {\"S\": \"eureka_moment\"}}"
+
+    if [[ -n "$type_filter" ]]; then
+        filter_expr="$filter_expr AND eureka_type = :etype"
+        attr_values=$(echo "$attr_values" | jq ". + {\":etype\": {\"S\": \"$type_filter\"}}")
+    fi
+
+    if [[ -n "$session_filter" ]]; then
+        filter_expr="$filter_expr AND session_id = :sid"
+        attr_values=$(echo "$attr_values" | jq ". + {\":sid\": {\"S\": \"$session_filter\"}}")
+    fi
+
+    local eurekas=$(aws dynamodb scan \
+        --table-name "gua-knowledge-index" \
+        --filter-expression "$filter_expr" \
+        --expression-attribute-values "$attr_values" \
+        --region "$REGION" 2>/dev/null)
+
+    local count=$(echo "$eurekas" | jq '.Count // 0')
+
+    if [[ "$count" == "0" ]]; then
+        echo "No eureka moments found."
+        echo ""
+        echo "Log one: gua eureka log '<insight>' [type]"
+        return
+    fi
+
+    # Sort by created_at descending and limit
+    echo "$eurekas" | jq -r ".Items | sort_by(.created_at.S) | reverse | .[:$limit][] |
+        \"[\(.eureka_type.S | .[0:4] | ascii_upcase)] \(.content.S | .[0:60])...\n    Type: \(.eureka_type.S) | Dim: \(.pp_dimension.S) | \(.created_at.S | split(\"T\")[0])\n    ID: \(.knowledge_id.S)\n\""
+}
+
+# ============================================================
+# EUREKA SHOW - Show eureka details
+# ============================================================
+cmd_eureka_show() {
+    local eureka_id="$1"
+
+    if [[ -z "$eureka_id" ]]; then
+        echo -e "${RED}Usage: gua eureka show <eureka_id>${NC}"
+        exit 1
+    fi
+
+    load_config
+
+    local eureka=$(aws dynamodb get-item \
+        --table-name "gua-knowledge-index" \
+        --key "{\"user_id\": {\"S\": \"$USER_ID\"}, \"knowledge_id\": {\"S\": \"$eureka_id\"}}" \
+        --region "$REGION" 2>/dev/null)
+
+    if [[ -z "$eureka" || "$(echo "$eureka" | jq '.Item')" == "null" ]]; then
+        echo -e "${RED}Eureka not found: $eureka_id${NC}"
+        exit 1
+    fi
+
+    echo -e "${BLUE}[EUREKA] Moment Details${NC}"
+    echo ""
+    echo "$eureka" | jq -r '.Item | "Content: \(.content.S)
+Type: \(.eureka_type.S)
+PP Dimension: \(.pp_dimension.S)
+Catalyst: \(.catalyst.S // "unknown")
+Task Context: \(.task_context.S // "none")
+Thinking Phase: \(.thinking_phase.S // "unknown")
+Session: \(.session_id.S // "none")
+Confidence: \(.confidence.S // "immediate")
+Promoted: \(.promoted.BOOL // false)
+Created: \(.created_at.S)"'
+}
+
+# ============================================================
+# EUREKA PROMOTE - Promote eureka to insight
+# ============================================================
+cmd_eureka_promote() {
+    local eureka_id="$1"
+
+    if [[ -z "$eureka_id" ]]; then
+        echo -e "${RED}Usage: gua eureka promote <eureka_id>${NC}"
+        exit 1
+    fi
+
+    load_config
+
+    # Get the eureka
+    local eureka=$(aws dynamodb get-item \
+        --table-name "gua-knowledge-index" \
+        --key "{\"user_id\": {\"S\": \"$USER_ID\"}, \"knowledge_id\": {\"S\": \"$eureka_id\"}}" \
+        --region "$REGION" 2>/dev/null)
+
+    local content=$(echo "$eureka" | jq -r '.Item.content.S // empty')
+    local eureka_type=$(echo "$eureka" | jq -r '.Item.eureka_type.S // "resolution"')
+    local pp_dimension=$(echo "$eureka" | jq -r '.Item.pp_dimension.S // "understanding"')
+    local catalyst=$(echo "$eureka" | jq -r '.Item.catalyst.S // "eureka moment"')
+
+    if [[ -z "$content" ]]; then
+        echo -e "${RED}Eureka not found: $eureka_id${NC}"
+        exit 1
+    fi
+
+    # Map eureka type to insight type
+    local insight_type="pattern"
+    case "$eureka_type" in
+        connection|pattern)
+            insight_type="pattern"
+            ;;
+        resolution|constraint)
+            insight_type="technique"
+            ;;
+        reframe)
+            insight_type="model"
+            ;;
+        simplify)
+            insight_type="principle"
+            ;;
+        counter_intuitive)
+            insight_type="observation"
+            ;;
+    esac
+
+    # Create insight
+    cmd_insight "$content" "$insight_type" "Eureka: $catalyst" "$pp_dimension" "global"
+
+    # Mark eureka as promoted
+    aws dynamodb update-item \
+        --table-name "gua-knowledge-index" \
+        --key "{\"user_id\": {\"S\": \"$USER_ID\"}, \"knowledge_id\": {\"S\": \"$eureka_id\"}}" \
+        --update-expression "SET promoted = :t, promoted_at = :ts" \
+        --expression-attribute-values "{\":t\": {\"BOOL\": true}, \":ts\": {\"S\": \"$(timestamp)\"}}" \
+        --region "$REGION" 2>/dev/null
+
+    echo -e "${GREEN}[EUREKA] Promoted to insight${NC}"
+}
+
+# ============================================================
+# EUREKA SESSION - Show eurekas from current/specific session
+# ============================================================
+cmd_eureka_session() {
+    local session_id="${1:-}"
+
+    # Use current session if not specified
+    if [[ -z "$session_id" && -f "$GUA_DIR/current_session" ]]; then
+        session_id=$(cat "$GUA_DIR/current_session")
+    fi
+
+    if [[ -z "$session_id" ]]; then
+        echo -e "${YELLOW}No active session. Showing recent eurekas instead.${NC}"
+        cmd_eureka_list --limit 5
+        return
+    fi
+
+    echo -e "${BLUE}[EUREKA] Session Moments: $session_id${NC}"
+    echo ""
+
+    load_config
+
+    local eurekas=$(aws dynamodb scan \
+        --table-name "gua-knowledge-index" \
+        --filter-expression "user_id = :uid AND knowledge_type = :kt AND session_id = :sid" \
+        --expression-attribute-values "{\":uid\": {\"S\": \"$USER_ID\"}, \":kt\": {\"S\": \"eureka_moment\"}, \":sid\": {\"S\": \"$session_id\"}}" \
+        --region "$REGION" 2>/dev/null)
+
+    local count=$(echo "$eurekas" | jq '.Count // 0')
+
+    if [[ "$count" == "0" ]]; then
+        echo "No eureka moments in this session."
+        return
+    fi
+
+    echo "Found $count eureka moment(s):"
+    echo ""
+
+    echo "$eurekas" | jq -r '.Items | sort_by(.created_at.S) | .[] |
+        "[\(.eureka_type.S | .[0:4] | ascii_upcase)] \(.content.S)\n    Catalyst: \(.catalyst.S // \"unknown\")\n"'
+}
+
+# ============================================================
+# EUREKA ANALYZE - Analyze eureka patterns
+# ============================================================
+cmd_eureka_analyze() {
+    local type_filter="${1:-}"
+
+    echo -e "${BLUE}[EUREKA] Pattern Analysis${NC}"
+    echo ""
+
+    load_config
+
+    local eurekas=$(aws dynamodb scan \
+        --table-name "gua-knowledge-index" \
+        --filter-expression "user_id = :uid AND knowledge_type = :kt" \
+        --expression-attribute-values "{\":uid\": {\"S\": \"$USER_ID\"}, \":kt\": {\"S\": \"eureka_moment\"}}" \
+        --region "$REGION" 2>/dev/null)
+
+    local total=$(echo "$eurekas" | jq '.Count // 0')
+
+    if [[ "$total" == "0" ]]; then
+        echo "No eureka moments to analyze."
+        return
+    fi
+
+    echo "Total eureka moments: $total"
+    echo ""
+
+    echo "By Type:"
+    echo "$eurekas" | jq -r '[.Items[].eureka_type.S] | group_by(.) | map({type: .[0], count: length}) | sort_by(-.count) | .[] | "  \(.type): \(.count)"'
+    echo ""
+
+    echo "By PP Dimension:"
+    echo "$eurekas" | jq -r '[.Items[].pp_dimension.S] | group_by(.) | map({dim: .[0], count: length}) | sort_by(-.count) | .[] | "  \(.dim): \(.count)"'
+    echo ""
+
+    # Meta-insight
+    local most_common=$(echo "$eurekas" | jq -r '[.Items[].eureka_type.S] | group_by(.) | map({type: .[0], count: length}) | sort_by(-.count) | .[0].type')
+
+    echo "Meta-Insight:"
+    case "$most_common" in
+        connection)
+            echo "  Most eurekas are CONNECTIONS - you learn by linking ideas."
+            echo "  Consider: Cross-reference more explicitly during exploration."
+            ;;
+        resolution)
+            echo "  Most eurekas are RESOLUTIONS - you learn by solving confusions."
+            echo "  Consider: Document confusions as they arise to track resolution patterns."
+            ;;
+        pattern)
+            echo "  Most eurekas are PATTERNS - you learn by recognizing recurring structures."
+            echo "  Consider: Build pattern libraries from these recognitions."
+            ;;
+        constraint)
+            echo "  Most eurekas are CONSTRAINTS - you learn by understanding boundaries."
+            echo "  Consider: Document 'what cannot be done' as valuable knowledge."
+            ;;
+        reframe)
+            echo "  Most eurekas are REFRAMES - you learn by shifting perspectives."
+            echo "  Consider: When stuck, explicitly try alternative framings."
+            ;;
+        simplify)
+            echo "  Most eurekas are SIMPLIFICATIONS - you learn by finding essence."
+            echo "  Consider: Always ask 'what's the simplest explanation?'"
+            ;;
+        counter_intuitive)
+            echo "  Most eurekas are COUNTER-INTUITIVE - you learn by challenging assumptions."
+            echo "  Consider: Actively test intuitions before trusting them."
+            ;;
+        *)
+            echo "  Diverse eureka types - multi-modal learning style."
+            ;;
+    esac
+}
+
+# ============================================================
 # MAIN
 # ============================================================
 check_deps
@@ -1825,6 +2198,43 @@ case "${1:-}" in
                 ;;
         esac
         ;;
+    # Eureka - Ahh Hah Moments
+    eureka)
+        case "${2:-}" in
+            log)
+                cmd_eureka_log "$3" "$4" "$5" "$6"
+                ;;
+            list)
+                shift 2
+                cmd_eureka_list "$@"
+                ;;
+            show)
+                cmd_eureka_show "$3"
+                ;;
+            promote)
+                cmd_eureka_promote "$3"
+                ;;
+            session)
+                cmd_eureka_session "$3"
+                ;;
+            analyze)
+                cmd_eureka_analyze "$3"
+                ;;
+            *)
+                echo "Usage: gua eureka <log|list|show|promote|session|analyze> [args]"
+                echo ""
+                echo "Commands:"
+                echo "  log <content> [type] [catalyst]  - Capture an ahh hah moment"
+                echo "  list [--type TYPE] [--limit N]   - List recent eurekas"
+                echo "  show <id>                        - Show eureka details"
+                echo "  promote <id>                     - Promote to insight"
+                echo "  session [session_id]             - Show session eurekas"
+                echo "  analyze                          - Analyze eureka patterns"
+                echo ""
+                echo "Types: connection, resolution, pattern, constraint, reframe, simplify, counter_intuitive"
+                ;;
+        esac
+        ;;
     help|--help|-h)
         echo "GUA - Global Understanding Archive"
         echo ""
@@ -1883,6 +2293,18 @@ case "${1:-}" in
         echo "  progress [project]      Show progress dashboard"
         echo "  progress snapshot [project]"
         echo "                          Create progress snapshot"
+        echo ""
+        echo "Eureka Recorder (Ahh Hah Moments):"
+        echo "  eureka log <content> [type] [catalyst] [task_context]"
+        echo "                          Capture an ahh hah moment"
+        echo "                          Types: connection, resolution, pattern, constraint,"
+        echo "                                 reframe, simplify, counter_intuitive"
+        echo "  eureka list [--type T] [--limit N]"
+        echo "                          List recent eureka moments"
+        echo "  eureka show <id>        Show eureka details"
+        echo "  eureka promote <id>     Promote eureka to insight"
+        echo "  eureka session [id]     Show eurekas from session"
+        echo "  eureka analyze          Analyze eureka patterns"
         echo ""
         echo "Setup: ~/.gua/setup.sh"
         echo "Upgrade to v2: ~/.gua/upgrade-v2.sh"
