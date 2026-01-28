@@ -1,0 +1,12 @@
+{
+  "id": "W1",
+  "name": "CLI Commands Complete",
+  "predecessor": "CURRENT_STATE",
+  "successor": null,
+  "status": "completed",
+  "impl": 100,
+  "depth": "L3",
+  "createdAt": "2026-01-28T17:44:53Z",
+  "updatedAt": "2026-01-28T17:51:07Z",
+  "validatedAt": null
+}

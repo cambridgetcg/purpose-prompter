@@ -750,6 +750,188 @@ cmd_status() {
 }
 
 # ============================================================
+# INIT - Run setup wizard
+# ============================================================
+cmd_init() {
+    local force="${1:-}"
+
+    if [[ -f "$CONFIG_FILE" && "$force" != "--force" ]]; then
+        echo -e "${YELLOW}[GUA] Already configured.${NC}"
+        echo ""
+        echo "Current configuration:"
+        echo "  User:   $(jq -r '.user_id' "$CONFIG_FILE")"
+        echo "  Device: $(jq -r '.device_id' "$CONFIG_FILE")"
+        echo ""
+        echo "To reconfigure, run: gua init --force"
+        echo "Or run setup directly: ~/.gua/setup.sh"
+        return 0
+    fi
+
+    if [[ -f "$GUA_DIR/setup.sh" ]]; then
+        source "$GUA_DIR/setup.sh"
+    else
+        echo -e "${RED}[GUA] Setup script not found at ~/.gua/setup.sh${NC}"
+        exit 1
+    fi
+}
+
+# ============================================================
+# WHOAMI - Show current user identity
+# ============================================================
+cmd_whoami() {
+    if [[ ! -f "$CONFIG_FILE" ]]; then
+        echo -e "${RED}[GUA] Not configured. Run: gua init${NC}"
+        exit 1
+    fi
+
+    local user_id=$(jq -r '.user_id' "$CONFIG_FILE")
+    local device_id=$(jq -r '.device_id' "$CONFIG_FILE")
+    local device_name=$(jq -r '.device_name' "$CONFIG_FILE")
+    local region=$(jq -r '.region' "$CONFIG_FILE")
+    local s3_bucket=$(jq -r '.s3_bucket' "$CONFIG_FILE")
+    local version=$(jq -r '.version // "1.0"' "$CONFIG_FILE")
+    local created_at=$(jq -r '.created_at // "unknown"' "$CONFIG_FILE")
+
+    echo -e "${CYAN}╔════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║           GUA IDENTITY                 ║${NC}"
+    echo -e "${CYAN}╚════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "${GREEN}User:${NC}"
+    echo "  User ID:     $user_id"
+    echo ""
+    echo -e "${GREEN}Device:${NC}"
+    echo "  Device ID:   $device_id"
+    echo "  Device Name: $device_name"
+    echo ""
+    echo -e "${GREEN}AWS:${NC}"
+    echo "  Region:      $region"
+    echo "  S3 Bucket:   $s3_bucket"
+    echo ""
+    echo -e "${GREEN}Config:${NC}"
+    echo "  Version:     $version"
+    echo "  Created:     $created_at"
+    echo ""
+
+    # Check current session
+    if [[ -f "$GUA_DIR/current_session" ]]; then
+        local session_id=$(cat "$GUA_DIR/current_session")
+        echo -e "${GREEN}Session:${NC}"
+        echo "  Active:      $session_id"
+        echo ""
+    fi
+}
+
+# ============================================================
+# AUTH - Authentication commands
+# ============================================================
+cmd_auth() {
+    local action="${1:-verify}"
+
+    case "$action" in
+        verify)
+            cmd_auth_verify
+            ;;
+        refresh)
+            cmd_auth_refresh
+            ;;
+        *)
+            echo "Usage: gua auth <verify|refresh>"
+            echo ""
+            echo "Commands:"
+            echo "  verify    Check authentication status"
+            echo "  refresh   Re-verify AWS credentials"
+            ;;
+    esac
+}
+
+cmd_auth_verify() {
+    echo -e "${CYAN}╔════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║       AUTHENTICATION STATUS            ║${NC}"
+    echo -e "${CYAN}╚════════════════════════════════════════╝${NC}"
+    echo ""
+
+    # Check config file
+    echo -e "${BLUE}>>> Configuration${NC}"
+    if [[ -f "$CONFIG_FILE" ]]; then
+        echo -e "  ${GREEN}✓${NC} Config file exists"
+        local user_id=$(jq -r '.user_id' "$CONFIG_FILE")
+        echo "    User: $user_id"
+    else
+        echo -e "  ${RED}✗${NC} Config file missing"
+        echo "    Run: gua init"
+        return 1
+    fi
+    echo ""
+
+    # Check AWS credentials
+    echo -e "${BLUE}>>> AWS Credentials${NC}"
+    local aws_identity=$(aws sts get-caller-identity 2>&1)
+    if [[ $? -eq 0 ]]; then
+        local aws_account=$(echo "$aws_identity" | jq -r '.Account')
+        local aws_arn=$(echo "$aws_identity" | jq -r '.Arn')
+        echo -e "  ${GREEN}✓${NC} AWS credentials valid"
+        echo "    Account: $aws_account"
+        echo "    ARN: $aws_arn"
+    else
+        echo -e "  ${RED}✗${NC} AWS credentials invalid or expired"
+        echo "    Run: aws configure"
+        return 1
+    fi
+    echo ""
+
+    # Check S3 access
+    echo -e "${BLUE}>>> S3 Access${NC}"
+    local s3_bucket=$(jq -r '.s3_bucket' "$CONFIG_FILE")
+    if aws s3 ls "s3://$s3_bucket" &>/dev/null; then
+        echo -e "  ${GREEN}✓${NC} S3 bucket accessible: $s3_bucket"
+    else
+        echo -e "  ${YELLOW}!${NC} S3 bucket not accessible: $s3_bucket"
+        echo "    May need to create bucket or check permissions"
+    fi
+    echo ""
+
+    # Check DynamoDB access
+    echo -e "${BLUE}>>> DynamoDB Access${NC}"
+    local region=$(jq -r '.region' "$CONFIG_FILE")
+    local tables=("gua-knowledge-index" "gua-research" "gua-insights" "gua-sessions")
+    local all_ok=true
+
+    for table in "${tables[@]}"; do
+        if aws dynamodb describe-table --table-name "$table" --region "$region" &>/dev/null; then
+            echo -e "  ${GREEN}✓${NC} $table"
+        else
+            echo -e "  ${YELLOW}!${NC} $table (not found)"
+            all_ok=false
+        fi
+    done
+    echo ""
+
+    # Summary
+    echo -e "${CYAN}════════════════════════════════════════${NC}"
+    if [[ "$all_ok" == "true" ]]; then
+        echo -e "${GREEN}Authentication: VALID${NC}"
+    else
+        echo -e "${YELLOW}Authentication: PARTIAL${NC}"
+        echo "Some resources may need to be created."
+        echo "Run: ~/.gua/setup.sh"
+    fi
+}
+
+cmd_auth_refresh() {
+    echo -e "${BLUE}[GUA] Refreshing authentication...${NC}"
+
+    # Just re-verify
+    local aws_identity=$(aws sts get-caller-identity 2>&1)
+    if [[ $? -eq 0 ]]; then
+        echo -e "${GREEN}[GUA] AWS credentials are valid${NC}"
+    else
+        echo -e "${RED}[GUA] AWS credentials need attention${NC}"
+        echo "Run: aws configure"
+        return 1
+    fi
+}
+
+# ============================================================
 # QUERY - Query research/insights from AWS
 # ============================================================
 cmd_query() {
@@ -1679,10 +1861,45 @@ cmd_progress() {
         echo ""
     fi
 
+    # Show waypoint status if path protocol is initialized
+    local project_root=$(pwd)
+    local path_dir="$project_root/.gua/path"
+    if [[ -d "$path_dir" && -f "$path_dir/manifest.json" ]]; then
+        echo "Path Protocol Status:"
+        local current_wp=$(jq -r '.currentWaypoint // "none"' "$path_dir/manifest.json")
+        local wp_count=$(jq -r '.waypointCount // 0' "$path_dir/manifest.json")
+
+        local wp_completed=0
+        local wp_in_progress=0
+        local wp_pending=0
+
+        if [[ -d "$path_dir/waypoints" ]] && ls -1 "$path_dir/waypoints/"*.json &>/dev/null; then
+            for json_file in "$path_dir/waypoints/"*.json; do
+                local status=$(jq -r '.status' "$json_file")
+                case "$status" in
+                    completed) ((wp_completed++)) ;;
+                    in_progress) ((wp_in_progress++)) ;;
+                    *) ((wp_pending++)) ;;
+                esac
+            done
+        fi
+
+        local purpose_progress=0
+        [[ $wp_count -gt 0 ]] && purpose_progress=$((wp_completed * 100 / wp_count))
+
+        echo "  Current waypoint:  $current_wp"
+        echo "  Purpose progress:  ${purpose_progress}% ($wp_completed/$wp_count waypoints)"
+        echo "  Waypoints: ${wp_completed} done, ${wp_in_progress} active, ${wp_pending} pending"
+        echo ""
+    fi
+
     echo "Quick Actions:"
     echo "  gua area status              # List all areas"
     echo "  gua challenge list           # List active challenges"
     echo "  gua area update <id> --impl X --depth LY"
+    if [[ -d "$path_dir" ]]; then
+        echo "  gua path status              # Full path protocol status"
+    fi
 }
 
 # ============================================================
@@ -1747,6 +1964,47 @@ cmd_progress_snapshot() {
     echo "  Areas: $area_count"
     echo "  Avg Completion: ${avg_impl}%"
     echo "  Active Challenges: $challenge_count"
+
+    # Also snapshot path protocol status if initialized
+    local project_root=$(pwd)
+    local path_dir="$project_root/.gua/path"
+    if [[ -d "$path_dir" && -f "$path_dir/manifest.json" ]]; then
+        local current_wp=$(jq -r '.currentWaypoint // "none"' "$path_dir/manifest.json")
+        local wp_count=$(jq -r '.waypointCount // 0' "$path_dir/manifest.json")
+
+        local wp_completed=0
+        if [[ -d "$path_dir/waypoints" ]] && ls -1 "$path_dir/waypoints/"*.json &>/dev/null; then
+            for json_file in "$path_dir/waypoints/"*.json; do
+                local status=$(jq -r '.status' "$json_file")
+                [[ "$status" == "completed" ]] && ((wp_completed++))
+            done
+        fi
+
+        local purpose_progress=0
+        [[ $wp_count -gt 0 ]] && purpose_progress=$((wp_completed * 100 / wp_count))
+
+        # Save local path snapshot
+        local path_snapshot="$path_dir/snapshots"
+        mkdir -p "$path_snapshot"
+        cat > "$path_snapshot/${date}.json" << EOF
+{
+  "date": "$date",
+  "timestamp": "$ts",
+  "currentWaypoint": "$current_wp",
+  "waypointCount": $wp_count,
+  "waypointsCompleted": $wp_completed,
+  "purposeProgress": $purpose_progress,
+  "cptAreas": $area_count,
+  "cptAvgCompletion": $avg_impl,
+  "activeChallenges": $challenge_count
+}
+EOF
+
+        echo ""
+        echo "Path Protocol:"
+        echo "  Current Waypoint: $current_wp"
+        echo "  Purpose Progress: ${purpose_progress}% ($wp_completed/$wp_count waypoints)"
+    fi
 }
 
 # ============================================================
@@ -2644,6 +2902,1389 @@ cmd_dev_promote() {
 }
 
 # ============================================================
+# DIR - Directory Knowledge Commands
+# ============================================================
+
+# Initialize .gua/ in current directory
+cmd_dir_init() {
+    local target_dir="${1:-$(pwd)}"
+    local gua_dir="$target_dir/.gua"
+
+    if [[ -d "$gua_dir" ]]; then
+        echo -e "${YELLOW}Directory already initialized: $target_dir${NC}"
+        return 0
+    fi
+
+    echo -e "${BLUE}[GUA] Initializing directory knowledge: $target_dir${NC}"
+
+    # Create directory structure
+    mkdir -p "$gua_dir/patterns"
+    mkdir -p "$gua_dir/contexts"
+    mkdir -p "$gua_dir/gotchas"
+    mkdir -p "$gua_dir/domains"
+
+    # Determine scope
+    local scope="directory"
+    local project_root=$(find_project_root "$target_dir")
+
+    if [[ -z "$project_root" || "$target_dir" == "$project_root" ]]; then
+        scope="project"
+    fi
+
+    # Create manifest
+    cat > "$gua_dir/manifest.json" << EOF
+{
+  "version": "1.0.0",
+  "createdAt": "$(timestamp)",
+  "updatedAt": "$(timestamp)",
+  "path": "$target_dir",
+  "scope": "$scope",
+  "counts": {
+    "patterns": 0,
+    "contexts": 0,
+    "gotchas": 0,
+    "overrides": 0,
+    "domains": 0
+  }
+}
+EOF
+
+    # Create initial context.md
+    local scope_label
+    case "$scope" in
+        global) scope_label="Global" ;;
+        project) scope_label="Project" ;;
+        *) scope_label="Directory" ;;
+    esac
+
+    cat > "$gua_dir/context.md" << EOF
+# $scope_label Context
+
+## Overview
+
+<!-- Describe this ${scope} -->
+
+## Key Concepts
+
+-
+
+## Important Notes
+
+-
+EOF
+
+    echo -e "${GREEN}Initialized .gua/ in $target_dir (scope: $scope)${NC}"
+}
+
+# Initialize global knowledge structure
+cmd_dir_init_global() {
+    local global_path="$GUA_DIR/global"
+
+    if [[ -d "$global_path" ]]; then
+        echo -e "${YELLOW}Global knowledge already initialized${NC}"
+        return 0
+    fi
+
+    echo -e "${BLUE}[GUA] Initializing global knowledge structure...${NC}"
+
+    mkdir -p "$global_path/patterns"
+    mkdir -p "$global_path/gotchas"
+    mkdir -p "$global_path/domains"
+
+    # Create manifest
+    cat > "$global_path/manifest.json" << EOF
+{
+  "version": "1.0.0",
+  "createdAt": "$(timestamp)",
+  "updatedAt": "$(timestamp)",
+  "path": "$global_path",
+  "scope": "global",
+  "counts": {
+    "patterns": 0,
+    "contexts": 0,
+    "gotchas": 0,
+    "overrides": 0,
+    "domains": 0
+  }
+}
+EOF
+
+    cat > "$global_path/context.md" << EOF
+# Global Knowledge Context
+
+## General Patterns
+
+This contains patterns that apply across all projects.
+
+## Usage
+
+Global knowledge cascades down to all projects and directories unless overridden locally.
+EOF
+
+    echo -e "${GREEN}Global knowledge initialized at $global_path${NC}"
+}
+
+# Find project root
+find_project_root() {
+    local start_dir="$1"
+    local current="$start_dir"
+    local gua_project_root=""
+
+    # First pass: look for standard project root markers
+    while [[ "$current" != "/" ]]; do
+        # Standard project markers take priority
+        if [[ -d "$current/.git" || -f "$current/package.json" || -f "$current/Cargo.toml" || -f "$current/go.mod" || -f "$current/pyproject.toml" ]]; then
+            echo "$current"
+            return 0
+        fi
+        # Track .gua with scope=project as fallback
+        if [[ -f "$current/.gua/manifest.json" ]]; then
+            local scope=$(jq -r '.scope' "$current/.gua/manifest.json" 2>/dev/null)
+            if [[ "$scope" == "project" && -z "$gua_project_root" ]]; then
+                gua_project_root="$current"
+            fi
+        fi
+        current=$(dirname "$current")
+    done
+
+    # Return .gua project root if found
+    if [[ -n "$gua_project_root" ]]; then
+        echo "$gua_project_root"
+        return 0
+    fi
+
+    return 1
+}
+
+# Add knowledge to current directory
+cmd_dir_add() {
+    local type="$1"
+    local name="$2"
+    shift 2
+
+    local target_dir="$(pwd)"
+    local gua_dir="$target_dir/.gua"
+    local content=""
+    local pp_dim=""
+    local tags=""
+
+    # Parse optional flags
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --content) content="$2"; shift 2 ;;
+            --file) content="$(cat "$2")"; shift 2 ;;
+            --pp) pp_dim="$2"; shift 2 ;;
+            --tags) tags="$2"; shift 2 ;;
+            --dir) target_dir="$2"; gua_dir="$target_dir/.gua"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    if [[ -z "$type" || -z "$name" ]]; then
+        echo -e "${RED}Usage: gua dir add <type> <name> [--content \"...\"] [--file path] [--pp dimension]${NC}"
+        echo "Types: pattern, context, gotcha, domain"
+        exit 1
+    fi
+
+    if [[ ! -d "$gua_dir" ]]; then
+        echo -e "${RED}Directory not initialized. Run 'gua dir init' first.${NC}"
+        exit 1
+    fi
+
+    local subdir
+    case "$type" in
+        pattern) subdir="patterns" ;;
+        context) subdir="contexts" ;;
+        gotcha) subdir="gotchas" ;;
+        domain) subdir="domains" ;;
+        *)
+            echo -e "${RED}Unknown type: $type${NC}"
+            exit 1
+            ;;
+    esac
+
+    local md_path="$gua_dir/$subdir/$name.md"
+    local json_path="$gua_dir/$subdir/$name.json"
+
+    # Get content if not provided
+    if [[ -z "$content" ]]; then
+        echo "Enter content (Ctrl+D when done):"
+        content=$(cat)
+    fi
+
+    # Write markdown file
+    echo "$content" > "$md_path"
+
+    # Write metadata JSON
+    cat > "$json_path" << EOF
+{
+  "id": "${type}-$(echo "$name" | md5sum | cut -c1-8)",
+  "name": "$name",
+  "type": "$type",
+  "ppDimension": "$pp_dim",
+  "tags": [$(echo "$tags" | sed 's/,/","/g' | sed 's/^/"/' | sed 's/$/"/')],
+  "createdAt": "$(timestamp)",
+  "updatedAt": "$(timestamp)"
+}
+EOF
+
+    # Update manifest counts
+    update_manifest_counts "$target_dir"
+
+    echo -e "${GREEN}Added $type: $name${NC}"
+}
+
+# Update manifest counts
+update_manifest_counts() {
+    local target_dir="$1"
+    local gua_dir="$target_dir/.gua"
+    local manifest="$gua_dir/manifest.json"
+
+    if [[ ! -f "$manifest" ]]; then
+        return
+    fi
+
+    local patterns=$(ls -1 "$gua_dir/patterns/"*.md 2>/dev/null | wc -l | tr -d ' ')
+    local contexts=$(ls -1 "$gua_dir/contexts/"*.md 2>/dev/null | wc -l | tr -d ' ')
+    local gotchas=$(ls -1 "$gua_dir/gotchas/"*.md 2>/dev/null | wc -l | tr -d ' ')
+    local overrides=$(ls -1 "$gua_dir/overrides/"*.md 2>/dev/null | wc -l | tr -d ' ')
+    local domains=$(ls -1 "$gua_dir/domains/"*.md 2>/dev/null | wc -l | tr -d ' ')
+
+    jq --arg ts "$(timestamp)" \
+       --argjson p "$patterns" \
+       --argjson c "$contexts" \
+       --argjson g "$gotchas" \
+       --argjson o "$overrides" \
+       --argjson d "$domains" \
+       '.updatedAt = $ts | .counts = {patterns: $p, contexts: $c, gotchas: $g, overrides: $o, domains: $d}' \
+       "$manifest" > "$manifest.tmp" && mv "$manifest.tmp" "$manifest"
+}
+
+# Show knowledge in current directory
+cmd_dir_show() {
+    local target_dir="${1:-$(pwd)}"
+    local gua_dir="$target_dir/.gua"
+
+    if [[ ! -d "$gua_dir" ]]; then
+        echo -e "${YELLOW}No knowledge in: $target_dir${NC}"
+        return 0
+    fi
+
+    local manifest="$gua_dir/manifest.json"
+    local scope=$(jq -r '.scope' "$manifest")
+    local counts=$(jq -r '.counts | "patterns: \(.patterns), contexts: \(.contexts), gotchas: \(.gotchas), domains: \(.domains)"' "$manifest")
+
+    echo -e "${BLUE}=== Directory Knowledge: $target_dir ===${NC}"
+    echo "Scope: $scope"
+    echo "Counts: $counts"
+    echo ""
+
+    # Show patterns
+    if [[ -d "$gua_dir/patterns" ]] && ls -1 "$gua_dir/patterns/"*.md &>/dev/null; then
+        echo -e "${GREEN}PATTERNS:${NC}"
+        for f in "$gua_dir/patterns/"*.md; do
+            local name=$(basename "$f" .md)
+            local pp=$(jq -r '.ppDimension // "-"' "$gua_dir/patterns/$name.json" 2>/dev/null || echo "-")
+            echo "  - $name [$pp]"
+        done
+        echo ""
+    fi
+
+    # Show gotchas
+    if [[ -d "$gua_dir/gotchas" ]] && ls -1 "$gua_dir/gotchas/"*.md &>/dev/null; then
+        echo -e "${YELLOW}GOTCHAS:${NC}"
+        for f in "$gua_dir/gotchas/"*.md; do
+            local name=$(basename "$f" .md)
+            echo "  - $name"
+        done
+        echo ""
+    fi
+
+    # Show context
+    if [[ -f "$gua_dir/context.md" ]]; then
+        echo -e "${BLUE}CONTEXT:${NC}"
+        head -20 "$gua_dir/context.md"
+        echo ""
+    fi
+}
+
+# Show inheritance chain (ancestry)
+cmd_dir_ancestry() {
+    local target_dir="${1:-$(pwd)}"
+    target_dir=$(cd "$target_dir" && pwd)
+
+    echo -e "${BLUE}=== Knowledge Ancestry: $target_dir ===${NC}"
+    echo ""
+
+    # Check global
+    local global_path="$GUA_DIR/global"
+    if [[ -d "$global_path" ]]; then
+        local global_counts=$(jq -r '.counts | "p:\(.patterns) g:\(.gotchas)"' "$global_path/manifest.json" 2>/dev/null || echo "p:0 g:0")
+        echo "[GLOBAL] ~/.gua/global/ ($global_counts)"
+    fi
+
+    # Find project root
+    local project_root=$(find_project_root "$target_dir")
+    if [[ -z "$project_root" ]]; then
+        project_root="$target_dir"
+    fi
+
+    # Walk from project root to target
+    local rel_path="${target_dir#$project_root/}"
+    [[ "$rel_path" == "$target_dir" ]] && rel_path=""
+    IFS='/' read -ra segments <<< "$rel_path"
+
+    local current="$project_root"
+    local depth=1
+
+    for i in $(seq 0 ${#segments[@]}); do
+        if [[ $i -eq 0 ]]; then
+            current="$project_root"
+        else
+            current="$current/${segments[$((i-1))]}"
+        fi
+
+        if [[ -d "$current/.gua" ]]; then
+            local scope=$(jq -r '.scope' "$current/.gua/manifest.json" 2>/dev/null || echo "directory")
+            local scope_upper=$(echo "$scope" | tr '[:lower:]' '[:upper:]')
+            local counts=$(jq -r '.counts | "p:\(.patterns) c:\(.contexts) g:\(.gotchas)"' "$current/.gua/manifest.json" 2>/dev/null || echo "p:0 c:0 g:0")
+            local indent=$(printf '%*s' $((depth * 2)) '')
+            echo "$indent[$scope_upper] $current ($counts)"
+        fi
+
+        ((depth++))
+    done
+}
+
+# Show effective/resolved knowledge
+cmd_dir_effective() {
+    local target_dir="${1:-$(pwd)}"
+    target_dir=$(cd "$target_dir" && pwd)
+
+    echo -e "${BLUE}=== Effective Knowledge: $target_dir ===${NC}"
+    echo ""
+
+    # Use temp files instead of associative arrays (bash 3 compatible)
+    local tmp_patterns=$(mktemp)
+    local tmp_gotchas=$(mktemp)
+    local tmp_contexts=$(mktemp)
+    trap "rm -f '$tmp_patterns' '$tmp_gotchas' '$tmp_contexts'" EXIT
+
+    # Load global
+    local global_path="$GUA_DIR/global"
+    if [[ -d "$global_path/patterns" ]]; then
+        find "$global_path/patterns" -maxdepth 1 -name "*.md" 2>/dev/null | while read -r f; do
+            local name=$(basename "$f" .md)
+            echo "$name|$f|GLOBAL" >> "$tmp_patterns"
+        done
+    fi
+    if [[ -d "$global_path/gotchas" ]]; then
+        find "$global_path/gotchas" -maxdepth 1 -name "*.md" 2>/dev/null | while read -r f; do
+            local name=$(basename "$f" .md)
+            echo "$name|$f|GLOBAL" >> "$tmp_gotchas"
+        done
+    fi
+    if [[ -f "$global_path/context.md" ]]; then
+        echo "GLOBAL|~/.gua/global/context.md" >> "$tmp_contexts"
+    fi
+
+    # Walk from project root to target, accumulating
+    local project_root=$(find_project_root "$target_dir")
+    [[ -z "$project_root" ]] && project_root="$target_dir"
+
+    local rel_path="${target_dir#$project_root/}"
+    [[ "$rel_path" == "$target_dir" ]] && rel_path=""
+    IFS='/' read -ra segments <<< "$rel_path"
+
+    local current="$project_root"
+    for i in $(seq 0 ${#segments[@]}); do
+        if [[ $i -gt 0 ]]; then
+            current="$current/${segments[$((i-1))]}"
+        fi
+
+        local gua="$current/.gua"
+        if [[ -d "$gua" ]]; then
+            local scope=$(jq -r '.scope' "$gua/manifest.json" 2>/dev/null || echo "directory")
+            local label=$(echo "$scope" | tr '[:lower:]' '[:upper:]')
+
+            # Patterns (override - later entries win)
+            if [[ -d "$gua/patterns" ]]; then
+                find "$gua/patterns" -maxdepth 1 -name "*.md" 2>/dev/null | while read -r f; do
+                    local name=$(basename "$f" .md)
+                    echo "$name|$f|$label" >> "$tmp_patterns"
+                done
+            fi
+
+            # Gotchas (accumulate)
+            if [[ -d "$gua/gotchas" ]]; then
+                find "$gua/gotchas" -maxdepth 1 -name "*.md" 2>/dev/null | while read -r f; do
+                    local name=$(basename "$f" .md)
+                    echo "$name|$f|$label" >> "$tmp_gotchas"
+                done
+            fi
+
+            # Contexts (accumulate)
+            if [[ -f "$gua/context.md" ]]; then
+                echo "$label|$gua/context.md" >> "$tmp_contexts"
+            fi
+        fi
+    done
+
+    # Display results (patterns: show last entry for each name = override wins)
+    if [[ -s "$tmp_patterns" ]]; then
+        echo -e "${GREEN}EFFECTIVE PATTERNS:${NC}"
+        # For each unique pattern name, show the last (most local) one
+        cut -d'|' -f1 "$tmp_patterns" | sort -u | while read -r name; do
+            local entry=$(grep "^$name|" "$tmp_patterns" | tail -1)
+            local file=$(echo "$entry" | cut -d'|' -f2)
+            local label=$(echo "$entry" | cut -d'|' -f3)
+            echo "  $name <- $file [$label]"
+        done
+        echo ""
+    fi
+
+    if [[ -s "$tmp_gotchas" ]]; then
+        echo -e "${YELLOW}ALL GOTCHAS:${NC}"
+        cut -d'|' -f1 "$tmp_gotchas" | sort -u | while read -r name; do
+            local entry=$(grep "^$name|" "$tmp_gotchas" | tail -1)
+            local file=$(echo "$entry" | cut -d'|' -f2)
+            local label=$(echo "$entry" | cut -d'|' -f3)
+            echo "  $name <- $file [$label]"
+        done
+        echo ""
+    fi
+
+    if [[ -s "$tmp_contexts" ]]; then
+        echo -e "${BLUE}CONTEXT CHAIN:${NC}"
+        while IFS='|' read -r label file; do
+            echo "  [$label] $file"
+        done < "$tmp_contexts"
+        echo ""
+    fi
+}
+
+# ============================================================
+# TREE - Knowledge Tree Visualization
+# ============================================================
+
+cmd_tree() {
+    local root_dir="${1:-$(pwd)}"
+    local max_depth="${2:-5}"
+    local show_details="${3:-false}"
+
+    root_dir=$(cd "$root_dir" && pwd)
+    local project_root=$(find_project_root "$root_dir")
+    [[ -z "$project_root" ]] && project_root="$root_dir"
+
+    echo -e "${BLUE}Knowledge Tree: $root_dir${NC}"
+    echo ""
+
+    # Recursive tree display
+    print_tree_node "$root_dir" "" true 0 "$max_depth" "$show_details"
+}
+
+print_tree_node() {
+    local dir_path="$1"
+    local prefix="$2"
+    local is_last="$3"
+    local depth="$4"
+    local max_depth="$5"
+    local show_details="$6"
+
+    [[ $depth -gt $max_depth ]] && return
+
+    local dirname=$(basename "$dir_path")
+    local connector="├── "
+    [[ "$is_last" == "true" ]] && connector="└── "
+
+    local knowledge_info=""
+    if [[ -d "$dir_path/.gua" ]]; then
+        local counts=$(jq -r '.counts | "\(.patterns)p \(.gotchas)g"' "$dir_path/.gua/manifest.json" 2>/dev/null || echo "0p 0g")
+        knowledge_info="${GREEN}(.gua: $counts)${NC}"
+    fi
+
+    if [[ $depth -eq 0 ]]; then
+        echo -e "$dirname/ $knowledge_info"
+    else
+        echo -e "${prefix}${connector}${dirname}/ $knowledge_info"
+    fi
+
+    # Get child directories (with .gua/ or with children that have .gua/)
+    local children=()
+    local excluded=("node_modules" ".git" "dist" "build" "coverage" "__pycache__" ".venv" "vendor")
+
+    for child in "$dir_path"/*/; do
+        [[ -d "$child" ]] || continue
+        local child_name=$(basename "$child")
+        [[ "${child_name:0:1}" == "." ]] && continue
+
+        local skip=false
+        for ex in "${excluded[@]}"; do
+            [[ "$child_name" == "$ex" ]] && skip=true && break
+        done
+        [[ "$skip" == "true" ]] && continue
+
+        # Check if this subtree has any .gua/
+        if has_gua_in_subtree "$child" $((depth + 1)) "$max_depth"; then
+            children+=("$child")
+        fi
+    done
+
+    # Process children
+    local new_prefix
+    [[ "$is_last" == "true" ]] && new_prefix="${prefix}    " || new_prefix="${prefix}│   "
+
+    local num_children=${#children[@]}
+    local i=0
+    for child in "${children[@]}"; do
+        ((i++))
+        local child_is_last="false"
+        [[ $i -eq $num_children ]] && child_is_last="true"
+        print_tree_node "$child" "$new_prefix" "$child_is_last" $((depth + 1)) "$max_depth" "$show_details"
+    done
+}
+
+has_gua_in_subtree() {
+    local dir="$1"
+    local depth="$2"
+    local max_depth="$3"
+
+    [[ $depth -gt $max_depth ]] && return 1
+    [[ -d "$dir/.gua" ]] && return 0
+
+    for child in "$dir"/*/; do
+        [[ -d "$child" ]] || continue
+        local child_name=$(basename "$child")
+        [[ "${child_name:0:1}" == "." ]] && continue
+        if has_gua_in_subtree "$child" $((depth + 1)) "$max_depth"; then
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+# ============================================================
+# CONTEXT - Quick Context Access
+# ============================================================
+
+cmd_context() {
+    local target_dir="${1:-$(pwd)}"
+    local format="${2:-markdown}"
+
+    target_dir=$(cd "$target_dir" && pwd)
+
+    echo -e "${BLUE}=== Context for: $target_dir ===${NC}"
+    echo ""
+
+    # Walk the ancestry and collect contexts
+    local global_path="$GUA_DIR/global"
+    if [[ -f "$global_path/context.md" ]]; then
+        echo -e "${GREEN}[GLOBAL]${NC}"
+        head -20 "$global_path/context.md" | sed 's/^/  /'
+        echo ""
+    fi
+
+    # Find project root
+    local project_root=$(find_project_root "$target_dir")
+    [[ -z "$project_root" ]] && project_root="$target_dir"
+
+    # Walk from project root to target
+    local rel_path="${target_dir#$project_root/}"
+    [[ "$rel_path" == "$target_dir" ]] && rel_path=""
+    IFS='/' read -ra segments <<< "$rel_path"
+
+    local current="$project_root"
+    for i in $(seq 0 ${#segments[@]}); do
+        if [[ $i -gt 0 ]]; then
+            current="$current/${segments[$((i-1))]}"
+        fi
+
+        if [[ -f "$current/.gua/context.md" ]]; then
+            local rel
+            rel="${current#$project_root/}"
+            [[ "$rel" == "$current" ]] && rel="."
+            local scope=$(jq -r '.scope' "$current/.gua/manifest.json" 2>/dev/null || echo "directory")
+            local scope_upper=$(echo "$scope" | tr '[:lower:]' '[:upper:]')
+            echo -e "${GREEN}[$scope_upper] $rel/${NC}"
+            head -20 "$current/.gua/context.md" | sed 's/^/  /'
+            echo ""
+        fi
+    done
+
+    # Show gotchas as warnings
+    echo -e "${YELLOW}GOTCHAS TO WATCH:${NC}"
+    cmd_dir_effective "$target_dir" 2>/dev/null | grep -A100 "ALL GOTCHAS:" | tail -n +2 | head -10
+}
+
+# ============================================================
+# PATH PROTOCOL - Current State → Purpose Path Building
+# ============================================================
+
+# Initialize path protocol for a project
+cmd_path_init() {
+    local project="${1:-$(basename $(pwd))}"
+    local project_root="${2:-$(pwd)}"
+
+    # Ensure .gua exists
+    if [[ ! -d "$project_root/.gua" ]]; then
+        cmd_dir_init "$project_root"
+    fi
+
+    local path_dir="$project_root/.gua/path"
+    mkdir -p "$path_dir"
+
+    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    # Create path manifest
+    cat > "$path_dir/manifest.json" << EOF
+{
+  "version": "1.0.0",
+  "project": "$project",
+  "createdAt": "$timestamp",
+  "updatedAt": "$timestamp",
+  "currentWaypoint": null,
+  "waypointCount": 0,
+  "purposeDefined": false,
+  "stateDefined": false
+}
+EOF
+
+    # Create CURRENT_STATE.md template
+    if [[ ! -f "$path_dir/CURRENT_STATE.md" ]]; then
+        cat > "$path_dir/CURRENT_STATE.md" << 'EOF'
+# Current State Assessment
+
+**Date**: [auto-updated]
+**Project**: [project-name]
+
+## What Works
+- [ ] [Feature/function that passes E2E]
+
+## What Doesn't Work
+- [ ] [Feature/function that fails E2E]
+
+## What's Partially Working
+- [ ] [Feature at X% - description]
+
+## Known Obstacles
+- [ ] [Challenge from CPT]
+
+## Current Capabilities
+- [What the system CAN do now]
+
+## Current Limitations
+- [What the system CANNOT do now]
+
+## Baseline Metrics
+- E2E pass rate: X/Y tests
+- Coverage: X%
+- Open challenges: N
+EOF
+    fi
+
+    # Create PURPOSE.md template
+    if [[ ! -f "$path_dir/PURPOSE.md" ]]; then
+        cat > "$path_dir/PURPOSE.md" << 'EOF'
+# Purpose Definition
+
+**Project**: [project-name]
+**Purpose Statement**: [One sentence describing the ideal state]
+
+## Success Criteria (Measurable)
+1. [ ] [Specific, testable criterion]
+2. [ ] [Specific, testable criterion]
+3. [ ] [Specific, testable criterion]
+
+## E2E Tests That Must Pass
+- [ ] [test-name]: [what it validates]
+
+## Capabilities Required
+- [What the system MUST be able to do]
+
+## Quality Requirements
+- Performance: [metric]
+- Reliability: [metric]
+- UX: [metric]
+
+## Out of Scope (Explicitly)
+- [What we are NOT building]
+
+## Definition of Done
+When ALL of the following are true:
+1. All success criteria checked
+2. All E2E tests passing
+3. All required capabilities demonstrated
+4. All quality metrics met
+EOF
+    fi
+
+    # Create waypoints directory
+    mkdir -p "$path_dir/waypoints"
+
+    echo -e "${GREEN}✓ Path protocol initialized for: $project${NC}"
+    echo "  Files created:"
+    echo "    - $path_dir/manifest.json"
+    echo "    - $path_dir/CURRENT_STATE.md"
+    echo "    - $path_dir/PURPOSE.md"
+    echo "    - $path_dir/waypoints/"
+    echo ""
+    echo "Next steps:"
+    echo "  1. Edit PURPOSE.md to define your goal"
+    echo "  2. Run 'gua path assess' to document current state"
+    echo "  3. Run 'gua path waypoint add' to define milestones"
+}
+
+# Show/update current state
+cmd_path_state() {
+    local project_root="${1:-$(pwd)}"
+    project_root=$(cd "$project_root" && pwd)
+    local path_dir="$project_root/.gua/path"
+
+    if [[ ! -d "$path_dir" ]]; then
+        echo -e "${RED}Path protocol not initialized. Run 'gua path init' first.${NC}"
+        return 1
+    fi
+
+    echo -e "${BLUE}=== Current State Assessment ===${NC}"
+    echo ""
+
+    if [[ -f "$path_dir/CURRENT_STATE.md" ]]; then
+        cat "$path_dir/CURRENT_STATE.md"
+    else
+        echo "No current state documented."
+    fi
+}
+
+# Show/update purpose
+cmd_path_purpose() {
+    local project_root="${1:-$(pwd)}"
+    project_root=$(cd "$project_root" && pwd)
+    local path_dir="$project_root/.gua/path"
+
+    if [[ ! -d "$path_dir" ]]; then
+        echo -e "${RED}Path protocol not initialized. Run 'gua path init' first.${NC}"
+        return 1
+    fi
+
+    echo -e "${BLUE}=== Purpose Definition ===${NC}"
+    echo ""
+
+    if [[ -f "$path_dir/PURPOSE.md" ]]; then
+        cat "$path_dir/PURPOSE.md"
+    else
+        echo "No purpose defined."
+    fi
+}
+
+# Add a waypoint
+cmd_path_waypoint_add() {
+    local project_root
+    local name="$1"
+    local predecessor="${2:-CURRENT_STATE}"
+
+    project_root=$(pwd)
+    local path_dir="$project_root/.gua/path"
+
+    if [[ ! -d "$path_dir" ]]; then
+        echo -e "${RED}Path protocol not initialized. Run 'gua path init' first.${NC}"
+        return 1
+    fi
+
+    if [[ -z "$name" ]]; then
+        echo -e "${RED}Usage: gua path waypoint add <name> [predecessor]${NC}"
+        return 1
+    fi
+
+    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    local waypoint_count=$(jq -r '.waypointCount' "$path_dir/manifest.json")
+    local new_count=$((waypoint_count + 1))
+    local waypoint_id="W${new_count}"
+
+    # Sanitize name for filename
+    local safe_name=$(echo "$name" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd '[:alnum:]-')
+    local waypoint_file="$path_dir/waypoints/${waypoint_id}-${safe_name}.md"
+    local waypoint_json="$path_dir/waypoints/${waypoint_id}-${safe_name}.json"
+
+    # Create waypoint markdown
+    cat > "$waypoint_file" << EOF
+# Waypoint: ${waypoint_id} - ${name}
+
+**Created**: $timestamp
+**Predecessor**: $predecessor
+**Successor**: [next waypoint or PURPOSE]
+**Status**: pending
+
+## What This Waypoint Achieves
+[Description of state after this waypoint]
+
+## Success Criteria
+1. [ ] [Specific, testable]
+2. [ ] [Specific, testable]
+
+## E2E Tests That Must Pass
+- [ ] [test-name]
+
+## Dependencies
+- [What must exist before this waypoint]
+
+## Known Risks
+- [What might go wrong]
+
+## Notes
+EOF
+
+    # Create waypoint metadata
+    cat > "$waypoint_json" << EOF
+{
+  "id": "$waypoint_id",
+  "name": "$name",
+  "predecessor": "$predecessor",
+  "successor": null,
+  "status": "pending",
+  "impl": 0,
+  "depth": "L0",
+  "createdAt": "$timestamp",
+  "updatedAt": "$timestamp",
+  "validatedAt": null
+}
+EOF
+
+    # Update manifest
+    jq --arg ts "$timestamp" --argjson count "$new_count" --arg wp "$waypoint_id" \
+       '.updatedAt = $ts | .waypointCount = $count | .currentWaypoint = (if .currentWaypoint == null then $wp else .currentWaypoint end)' \
+       "$path_dir/manifest.json" > "$path_dir/manifest.json.tmp" && mv "$path_dir/manifest.json.tmp" "$path_dir/manifest.json"
+
+    echo -e "${GREEN}✓ Waypoint created: ${waypoint_id} - ${name}${NC}"
+    echo "  File: $waypoint_file"
+    echo ""
+    echo "Edit the waypoint file to define success criteria and details."
+}
+
+# List waypoints
+cmd_path_waypoint_list() {
+    local project_root="${1:-$(pwd)}"
+    project_root=$(cd "$project_root" && pwd)
+    local path_dir="$project_root/.gua/path"
+
+    if [[ ! -d "$path_dir" ]]; then
+        echo -e "${RED}Path protocol not initialized. Run 'gua path init' first.${NC}"
+        return 1
+    fi
+
+    local current_wp=$(jq -r '.currentWaypoint // "none"' "$path_dir/manifest.json")
+
+    echo -e "${BLUE}=== Waypoints ===${NC}"
+    echo "Current: $current_wp"
+    echo ""
+
+    if [[ ! -d "$path_dir/waypoints" ]] || ! ls -1 "$path_dir/waypoints/"*.json &>/dev/null; then
+        echo "No waypoints defined yet."
+        echo "Run 'gua path waypoint add <name>' to create one."
+        return 0
+    fi
+
+    echo "CURRENT STATE"
+    echo "     │"
+
+    for json_file in "$path_dir/waypoints/"*.json; do
+        local id=$(jq -r '.id' "$json_file")
+        local name=$(jq -r '.name' "$json_file")
+        local status=$(jq -r '.status' "$json_file")
+        local impl=$(jq -r '.impl' "$json_file")
+        local depth=$(jq -r '.depth' "$json_file")
+
+        local status_icon="○"
+        local status_color="${NC}"
+        case "$status" in
+            completed) status_icon="●"; status_color="${GREEN}" ;;
+            in_progress) status_icon="◐"; status_color="${YELLOW}" ;;
+            blocked) status_icon="✕"; status_color="${RED}" ;;
+        esac
+
+        local marker=""
+        [[ "$id" == "$current_wp" ]] && marker=" ← CURRENT"
+
+        echo "     ▼"
+        echo -e "  ${status_color}${status_icon} ${id}: ${name}${NC}${marker}"
+        echo "     │  Status: $status | Impl: ${impl}% | Depth: $depth"
+    done
+
+    echo "     ▼"
+    echo "  PURPOSE"
+}
+
+# Update waypoint
+cmd_path_waypoint_update() {
+    local waypoint_id="$1"
+    shift
+
+    local project_root=$(pwd)
+    local path_dir="$project_root/.gua/path"
+
+    if [[ ! -d "$path_dir" ]]; then
+        echo -e "${RED}Path protocol not initialized. Run 'gua path init' first.${NC}"
+        return 1
+    fi
+
+    if [[ -z "$waypoint_id" ]]; then
+        echo -e "${RED}Usage: gua path waypoint update <id> [--status S] [--impl N] [--depth L]${NC}"
+        return 1
+    fi
+
+    # Find the waypoint file
+    local waypoint_json=$(ls "$path_dir/waypoints/${waypoint_id}-"*.json 2>/dev/null | head -1)
+
+    if [[ ! -f "$waypoint_json" ]]; then
+        echo -e "${RED}Waypoint not found: $waypoint_id${NC}"
+        return 1
+    fi
+
+    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    local new_status=""
+    local new_impl=""
+    local new_depth=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --status) new_status="$2"; shift 2 ;;
+            --impl) new_impl="$2"; shift 2 ;;
+            --depth) new_depth="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    # Update the JSON file
+    local tmp_file=$(mktemp)
+    cp "$waypoint_json" "$tmp_file"
+
+    if [[ -n "$new_status" ]]; then
+        jq --arg s "$new_status" '.status = $s' "$tmp_file" > "${tmp_file}.2" && mv "${tmp_file}.2" "$tmp_file"
+    fi
+
+    if [[ -n "$new_impl" ]]; then
+        jq --argjson i "$new_impl" '.impl = $i' "$tmp_file" > "${tmp_file}.2" && mv "${tmp_file}.2" "$tmp_file"
+    fi
+
+    if [[ -n "$new_depth" ]]; then
+        jq --arg d "$new_depth" '.depth = $d' "$tmp_file" > "${tmp_file}.2" && mv "${tmp_file}.2" "$tmp_file"
+    fi
+
+    jq --arg ts "$timestamp" '.updatedAt = $ts' "$tmp_file" > "${tmp_file}.2" && mv "${tmp_file}.2" "$tmp_file"
+
+    mv "$tmp_file" "$waypoint_json"
+
+    # Update manifest
+    jq --arg ts "$timestamp" '.updatedAt = $ts' "$path_dir/manifest.json" > "$path_dir/manifest.json.tmp" && \
+        mv "$path_dir/manifest.json.tmp" "$path_dir/manifest.json"
+
+    echo -e "${GREEN}✓ Waypoint updated: $waypoint_id${NC}"
+    jq -r '"  Status: \(.status) | Impl: \(.impl)% | Depth: \(.depth)"' "$waypoint_json"
+}
+
+# Set current waypoint
+cmd_path_waypoint_current() {
+    local waypoint_id="$1"
+    local project_root=$(pwd)
+    local path_dir="$project_root/.gua/path"
+
+    if [[ ! -d "$path_dir" ]]; then
+        echo -e "${RED}Path protocol not initialized. Run 'gua path init' first.${NC}"
+        return 1
+    fi
+
+    if [[ -z "$waypoint_id" ]]; then
+        # Just show current
+        jq -r '"Current waypoint: \(.currentWaypoint // "none")"' "$path_dir/manifest.json"
+        return 0
+    fi
+
+    # Verify waypoint exists
+    if ! ls "$path_dir/waypoints/${waypoint_id}-"*.json &>/dev/null; then
+        echo -e "${RED}Waypoint not found: $waypoint_id${NC}"
+        return 1
+    fi
+
+    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    jq --arg wp "$waypoint_id" --arg ts "$timestamp" \
+       '.currentWaypoint = $wp | .updatedAt = $ts' \
+       "$path_dir/manifest.json" > "$path_dir/manifest.json.tmp" && \
+       mv "$path_dir/manifest.json.tmp" "$path_dir/manifest.json"
+
+    echo -e "${GREEN}✓ Current waypoint set to: $waypoint_id${NC}"
+}
+
+# Run path assessment (combines E2E status + GUA status)
+cmd_path_assess() {
+    local project_root="${1:-$(pwd)}"
+    project_root=$(cd "$project_root" && pwd)
+
+    echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
+    echo -e "${BLUE}║       PATH PROTOCOL ASSESSMENT         ║${NC}"
+    echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
+    echo ""
+
+    # E2E Status (if e2e.sh exists)
+    if [[ -f "$GUA_DIR/e2e.sh" ]]; then
+        echo -e "${YELLOW}━━━ E2E Status ━━━${NC}"
+        "$GUA_DIR/e2e.sh" status 2>/dev/null || echo "  (E2E not configured)"
+        echo ""
+    fi
+
+    # Open challenges
+    echo -e "${YELLOW}━━━ Open Challenges ━━━${NC}"
+    cmd_challenge_list "--status" "open" 2>/dev/null || echo "  No open challenges"
+    echo ""
+
+    # Progress
+    echo -e "${YELLOW}━━━ Progress Dashboard ━━━${NC}"
+    cmd_progress 2>/dev/null || echo "  No progress tracked"
+    echo ""
+
+    # Tracked areas
+    echo -e "${YELLOW}━━━ Tracked Areas ━━━${NC}"
+    cmd_area_status 2>/dev/null || echo "  No areas tracked"
+    echo ""
+
+    # Directory context
+    echo -e "${YELLOW}━━━ Directory Context ━━━${NC}"
+    cmd_context "$project_root" 2>/dev/null | head -30
+}
+
+# Validate current waypoint
+cmd_path_validate() {
+    local project_root="${1:-$(pwd)}"
+    local waypoint_id="${2:-}"
+    project_root=$(cd "$project_root" && pwd)
+    local path_dir="$project_root/.gua/path"
+
+    if [[ ! -d "$path_dir" ]]; then
+        echo -e "${RED}Path protocol not initialized. Run 'gua path init' first.${NC}"
+        return 1
+    fi
+
+    # Get current waypoint if not specified
+    if [[ -z "$waypoint_id" ]]; then
+        waypoint_id=$(jq -r '.currentWaypoint // ""' "$path_dir/manifest.json")
+    fi
+
+    if [[ -z "$waypoint_id" || "$waypoint_id" == "null" ]]; then
+        echo -e "${RED}No current waypoint set. Use 'gua path waypoint current <id>' to set one.${NC}"
+        return 1
+    fi
+
+    local waypoint_json=$(ls "$path_dir/waypoints/${waypoint_id}-"*.json 2>/dev/null | head -1)
+    local waypoint_md=$(ls "$path_dir/waypoints/${waypoint_id}-"*.md 2>/dev/null | head -1)
+
+    if [[ ! -f "$waypoint_json" ]]; then
+        echo -e "${RED}Waypoint not found: $waypoint_id${NC}"
+        return 1
+    fi
+
+    local name=$(jq -r '.name' "$waypoint_json")
+
+    echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
+    echo -e "${BLUE}║     WAYPOINT VALIDATION: ${waypoint_id}${NC}"
+    echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
+    echo ""
+    echo "Waypoint: $name"
+    echo ""
+
+    # Run E2E if available
+    if [[ -f "$GUA_DIR/e2e.sh" ]]; then
+        echo -e "${YELLOW}━━━ Running E2E Validation ━━━${NC}"
+        "$GUA_DIR/e2e.sh" run 2>/dev/null || echo "  E2E tests completed (check output above)"
+        echo ""
+    else
+        echo -e "${YELLOW}━━━ E2E Not Configured ━━━${NC}"
+        echo "  Run 'gua e2e init' to configure E2E testing"
+        echo ""
+    fi
+
+    # Show waypoint criteria
+    echo -e "${YELLOW}━━━ Success Criteria ━━━${NC}"
+    if [[ -f "$waypoint_md" ]]; then
+        grep -A 10 "## Success Criteria" "$waypoint_md" 2>/dev/null | head -12
+    fi
+    echo ""
+
+    echo -e "${YELLOW}━━━ Validation Checklist ━━━${NC}"
+    echo "  [ ] Waypoint-specific tests pass"
+    echo "  [ ] No regression in existing tests"
+    echo "  [ ] Performance within bounds"
+    echo "  [ ] No new errors in logs"
+    echo ""
+    echo "If all criteria met, run:"
+    echo "  gua path waypoint update $waypoint_id --status completed"
+    echo ""
+    echo "If validation fails, diagnose and run:"
+    echo "  gua path adjust \"[reason]\""
+}
+
+# Log path adjustment
+cmd_path_adjust() {
+    local reason="$1"
+    local project_root=$(pwd)
+    local path_dir="$project_root/.gua/path"
+
+    if [[ ! -d "$path_dir" ]]; then
+        echo -e "${RED}Path protocol not initialized. Run 'gua path init' first.${NC}"
+        return 1
+    fi
+
+    if [[ -z "$reason" ]]; then
+        echo -e "${RED}Usage: gua path adjust \"<reason>\"${NC}"
+        echo ""
+        echo "Adjustment types:"
+        echo "  - Bug: Implementation issue to fix"
+        echo "  - Approach: Wrong approach, need alternative"
+        echo "  - Dependency: Missing prerequisite"
+        echo "  - Assumption: Incorrect understanding"
+        echo "  - Constraint: External limitation discovered"
+        echo "  - Purpose: Goal needs refinement"
+        return 1
+    fi
+
+    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    local current_wp=$(jq -r '.currentWaypoint // "unknown"' "$path_dir/manifest.json")
+
+    # Log as insight
+    cmd_insight_log "Path adjustment at $current_wp: $reason" "constraint" "validation failure" "truth" "project"
+
+    # Append to adjustments log
+    local adjustments_log="$path_dir/adjustments.jsonl"
+    echo "{\"timestamp\":\"$timestamp\",\"waypoint\":\"$current_wp\",\"reason\":\"$reason\"}" >> "$adjustments_log"
+
+    echo -e "${YELLOW}✓ Path adjustment logged${NC}"
+    echo "  Waypoint: $current_wp"
+    echo "  Reason: $reason"
+    echo ""
+    echo "Next steps:"
+    echo "  1. Diagnose the root cause"
+    echo "  2. Research alternatives: gua research \"<topic>\" \"<finding>\""
+    echo "  3. Update waypoint if needed"
+    echo "  4. Re-attempt validation: gua path validate"
+}
+
+# Show comprehensive path status
+cmd_path_status() {
+    local project_root="${1:-$(pwd)}"
+    project_root=$(cd "$project_root" && pwd)
+    local path_dir="$project_root/.gua/path"
+
+    if [[ ! -d "$path_dir" ]]; then
+        echo -e "${RED}Path protocol not initialized. Run 'gua path init' first.${NC}"
+        return 1
+    fi
+
+    local manifest="$path_dir/manifest.json"
+    local project=$(jq -r '.project' "$manifest")
+    local current_wp=$(jq -r '.currentWaypoint // "none"' "$manifest")
+    local wp_count=$(jq -r '.waypointCount' "$manifest")
+
+    echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
+    echo -e "${BLUE}║        PATH PROTOCOL STATUS            ║${NC}"
+    echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
+    echo ""
+    echo "Project: $project"
+    echo "Current Waypoint: $current_wp"
+    echo "Total Waypoints: $wp_count"
+    echo ""
+
+    # Calculate completed waypoints
+    local completed=0
+    local in_progress=0
+    local pending=0
+    local blocked=0
+
+    if [[ -d "$path_dir/waypoints" ]] && ls -1 "$path_dir/waypoints/"*.json &>/dev/null; then
+        for json_file in "$path_dir/waypoints/"*.json; do
+            local status=$(jq -r '.status' "$json_file")
+            case "$status" in
+                completed) ((completed++)) ;;
+                in_progress) ((in_progress++)) ;;
+                blocked) ((blocked++)) ;;
+                *) ((pending++)) ;;
+            esac
+        done
+    fi
+
+    echo -e "${GREEN}━━━ Waypoint Summary ━━━${NC}"
+    echo "  Completed: $completed"
+    echo "  In Progress: $in_progress"
+    echo "  Pending: $pending"
+    echo "  Blocked: $blocked"
+    echo ""
+
+    # Calculate purpose progress
+    local purpose_progress=0
+    if [[ $wp_count -gt 0 ]]; then
+        purpose_progress=$((completed * 100 / wp_count))
+    fi
+
+    echo -e "${GREEN}━━━ Progress ━━━${NC}"
+    echo "  Purpose Progress: ${purpose_progress}% ($completed/$wp_count waypoints)"
+    echo ""
+
+    # Show path visualization
+    echo -e "${GREEN}━━━ Path Visualization ━━━${NC}"
+    cmd_path_waypoint_list "$project_root" 2>/dev/null
+    echo ""
+
+    # Show E2E status if available
+    local e2e_latest="$path_dir/e2e-assessments/latest.json"
+    if [[ -f "$e2e_latest" ]]; then
+        echo -e "${GREEN}━━━ E2E Status ━━━${NC}"
+        local e2e_passed=$(jq -r '.passed' "$e2e_latest")
+        local e2e_failed=$(jq -r '.failed' "$e2e_latest")
+        local e2e_total=$(jq -r '.total' "$e2e_latest")
+        local e2e_rate=$(jq -r '.passRate' "$e2e_latest")
+        local e2e_time=$(jq -r '.timestamp' "$e2e_latest")
+
+        echo "  Last Run: $e2e_time"
+        echo "  Tests: ${e2e_passed}/${e2e_total} passing (${e2e_rate}%)"
+        if [[ $e2e_failed -gt 0 ]]; then
+            echo -e "  ${RED}Failing: $e2e_failed tests${NC}"
+        else
+            echo -e "  ${GREEN}All tests passing${NC}"
+        fi
+        echo ""
+    else
+        echo -e "${YELLOW}━━━ E2E Status ━━━${NC}"
+        echo "  No E2E results yet"
+        echo "  Run: e2e path-assess"
+        echo ""
+    fi
+
+    # Show recent adjustments
+    if [[ -f "$path_dir/adjustments.jsonl" ]]; then
+        echo -e "${YELLOW}━━━ Recent Adjustments ━━━${NC}"
+        tail -5 "$path_dir/adjustments.jsonl" | while read -r line; do
+            local wp=$(echo "$line" | jq -r '.waypoint')
+            local reason=$(echo "$line" | jq -r '.reason')
+            echo "  [$wp] $reason"
+        done
+        echo ""
+    fi
+
+    # Quick commands
+    echo -e "${GREEN}━━━ Quick Commands ━━━${NC}"
+    echo "  e2e path-assess        # Run E2E assessment"
+    echo "  e2e path-validate      # Validate current waypoint"
+    echo "  gua path waypoint update $current_wp --status <s>"
+}
+
+# List available waypoint templates
+cmd_path_template_list() {
+    local template_dir="$GUA_DIR/templates/waypoints"
+
+    echo -e "${BLUE}=== Available Waypoint Templates ===${NC}"
+    echo ""
+
+    if [[ ! -d "$template_dir" ]] || ! ls -1 "$template_dir/"*.md &>/dev/null; then
+        echo "No templates found in: $template_dir"
+        return 0
+    fi
+
+    for template in "$template_dir/"*.md; do
+        local name=$(basename "$template" .md)
+        local type_line=$(grep "^\*\*Type\*\*:" "$template" 2>/dev/null | head -1)
+        local use_line=$(grep "^\*\*Use when\*\*:" "$template" 2>/dev/null | head -1)
+
+        echo -e "${GREEN}$name${NC}"
+        [[ -n "$type_line" ]] && echo "  $type_line"
+        [[ -n "$use_line" ]] && echo "  $use_line"
+        echo ""
+    done
+
+    echo "Usage: gua path template use <name> <waypoint-name>"
+}
+
+# Use a waypoint template
+cmd_path_template_use() {
+    local template_name="$1"
+    local waypoint_name="$2"
+    local predecessor="${3:-CURRENT_STATE}"
+
+    local template_dir="$GUA_DIR/templates/waypoints"
+    local template_file="$template_dir/${template_name}.md"
+
+    if [[ -z "$template_name" || -z "$waypoint_name" ]]; then
+        echo -e "${RED}Usage: gua path template use <template> <waypoint-name> [predecessor]${NC}"
+        echo ""
+        echo "Available templates:"
+        ls -1 "$template_dir/"*.md 2>/dev/null | xargs -I{} basename {} .md | sed 's/^/  /'
+        return 1
+    fi
+
+    if [[ ! -f "$template_file" ]]; then
+        echo -e "${RED}Template not found: $template_name${NC}"
+        echo "Available templates:"
+        ls -1 "$template_dir/"*.md 2>/dev/null | xargs -I{} basename {} .md | sed 's/^/  /'
+        return 1
+    fi
+
+    local project_root=$(pwd)
+    local path_dir="$project_root/.gua/path"
+
+    if [[ ! -d "$path_dir" ]]; then
+        echo -e "${RED}Path protocol not initialized. Run 'gua path init' first.${NC}"
+        return 1
+    fi
+
+    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    local waypoint_count=$(jq -r '.waypointCount' "$path_dir/manifest.json")
+    local new_count=$((waypoint_count + 1))
+    local waypoint_id="W${new_count}"
+
+    # Sanitize name for filename
+    local safe_name=$(echo "$waypoint_name" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd '[:alnum:]-')
+    local waypoint_file="$path_dir/waypoints/${waypoint_id}-${safe_name}.md"
+    local waypoint_json="$path_dir/waypoints/${waypoint_id}-${safe_name}.json"
+
+    # Create waypoint from template
+    {
+        echo "# Waypoint: ${waypoint_id} - ${waypoint_name}"
+        echo ""
+        echo "**Created**: $timestamp"
+        echo "**Predecessor**: $predecessor"
+        echo "**Successor**: [next waypoint or PURPOSE]"
+        echo "**Status**: pending"
+        echo ""
+        # Skip the first header from template and append rest
+        tail -n +2 "$template_file"
+    } > "$waypoint_file"
+
+    # Create waypoint metadata with template info
+    cat > "$waypoint_json" << EOF
+{
+  "id": "$waypoint_id",
+  "name": "$waypoint_name",
+  "template": "$template_name",
+  "predecessor": "$predecessor",
+  "successor": null,
+  "status": "pending",
+  "impl": 0,
+  "depth": "L0",
+  "createdAt": "$timestamp",
+  "updatedAt": "$timestamp",
+  "validatedAt": null
+}
+EOF
+
+    # Update manifest
+    jq --arg ts "$timestamp" --argjson count "$new_count" --arg wp "$waypoint_id" \
+       '.updatedAt = $ts | .waypointCount = $count | .currentWaypoint = (if .currentWaypoint == null then $wp else .currentWaypoint end)' \
+       "$path_dir/manifest.json" > "$path_dir/manifest.json.tmp" && mv "$path_dir/manifest.json.tmp" "$path_dir/manifest.json"
+
+    echo -e "${GREEN}✓ Waypoint created from template: ${waypoint_id} - ${waypoint_name}${NC}"
+    echo "  Template: $template_name"
+    echo "  File: $waypoint_file"
+    echo ""
+    echo "Edit the waypoint file to customize success criteria."
+}
+
+# ============================================================
 # MAIN
 # ============================================================
 check_deps
@@ -2680,6 +4321,16 @@ case "${1:-}" in
         ;;
     list-knowledge|lk)
         cmd_list_knowledge "$2"
+        ;;
+    # Authentication & Identity Commands
+    init)
+        cmd_init "$2"
+        ;;
+    whoami)
+        cmd_whoami
+        ;;
+    auth)
+        cmd_auth "$2"
         ;;
     status)
         cmd_status
@@ -2844,8 +4495,190 @@ case "${1:-}" in
                 ;;
         esac
         ;;
+    # Directory Knowledge - Hierarchical knowledge by directory
+    dir)
+        case "${2:-}" in
+            init)
+                cmd_dir_init "$3"
+                ;;
+            init-global)
+                cmd_dir_init_global
+                ;;
+            add)
+                cmd_dir_add "$3" "$4" "${@:5}"
+                ;;
+            show)
+                cmd_dir_show "$3"
+                ;;
+            ancestry)
+                cmd_dir_ancestry "$3"
+                ;;
+            effective)
+                cmd_dir_effective "$3"
+                ;;
+            *)
+                echo "Usage: gua dir <init|add|show|ancestry|effective> [args]"
+                echo ""
+                echo "Commands:"
+                echo "  init [path]             Initialize .gua/ in directory"
+                echo "  init-global             Initialize ~/.gua/global/"
+                echo "  add <type> <name> [options]"
+                echo "                          Add knowledge to current directory"
+                echo "                          Types: pattern, context, gotcha, domain"
+                echo "                          Options: --content, --file, --pp, --tags"
+                echo "  show [path]             Show knowledge in directory"
+                echo "  ancestry [path]         Show inheritance chain"
+                echo "  effective [path]        Show merged/resolved knowledge"
+                echo ""
+                echo "Examples:"
+                echo "  gua dir init"
+                echo "  gua dir add pattern error-handling --content \"Always use try-catch...\""
+                echo "  gua dir add gotcha state-mutation --pp truth --file gotcha.md"
+                echo "  gua dir ancestry"
+                echo "  gua dir effective"
+                ;;
+        esac
+        ;;
+    # Path Protocol - Purpose-driven development
+    path)
+        case "${2:-}" in
+            init)
+                cmd_path_init "$3" "$4"
+                ;;
+            state)
+                cmd_path_state "$3"
+                ;;
+            purpose)
+                cmd_path_purpose "$3"
+                ;;
+            waypoint)
+                case "${3:-}" in
+                    add)
+                        cmd_path_waypoint_add "$4" "$5"
+                        ;;
+                    list)
+                        cmd_path_waypoint_list "$4"
+                        ;;
+                    update)
+                        shift 3
+                        cmd_path_waypoint_update "$@"
+                        ;;
+                    current)
+                        cmd_path_waypoint_current "$4"
+                        ;;
+                    *)
+                        echo "Usage: gua path waypoint <add|list|update|current> [args]"
+                        echo ""
+                        echo "Commands:"
+                        echo "  add <name> [predecessor]  Create a new waypoint"
+                        echo "  list [path]               List all waypoints"
+                        echo "  update <id> [options]     Update waypoint status"
+                        echo "                            Options: --status, --impl, --depth"
+                        echo "  current [id]              Show/set current waypoint"
+                        ;;
+                esac
+                ;;
+            assess)
+                cmd_path_assess "$3"
+                ;;
+            validate)
+                cmd_path_validate "$3" "$4"
+                ;;
+            adjust)
+                cmd_path_adjust "$3"
+                ;;
+            status)
+                cmd_path_status "$3"
+                ;;
+            session)
+                case "${3:-}" in
+                    start)
+                        echo "Starting Path Protocol session..."
+                        echo "Hint: For full session start, use: source ~/.gua/path-session-start.sh"
+                        source "$HOME/.gua/path-session-start.sh" "$4" "$5"
+                        ;;
+                    end)
+                        echo "Ending Path Protocol session..."
+                        echo "Hint: For full session end, use: source ~/.gua/path-session-end.sh"
+                        source "$HOME/.gua/path-session-end.sh" "$4" "$5"
+                        ;;
+                    *)
+                        echo "Usage: gua path session <start|end> [project] [path]"
+                        echo ""
+                        echo "Commands:"
+                        echo "  start [project] [path]  Start path protocol session"
+                        echo "  end [project] [path]    End session with snapshot"
+                        echo ""
+                        echo "Full session scripts (recommended):"
+                        echo "  source ~/.gua/path-session-start.sh [project]"
+                        echo "  source ~/.gua/path-session-end.sh [project]"
+                        ;;
+                esac
+                ;;
+            template)
+                case "${3:-}" in
+                    list)
+                        cmd_path_template_list
+                        ;;
+                    use)
+                        cmd_path_template_use "$4" "$5" "$6"
+                        ;;
+                    *)
+                        echo "Usage: gua path template <list|use> [args]"
+                        echo ""
+                        echo "Commands:"
+                        echo "  list                    List available templates"
+                        echo "  use <template> <name>   Create waypoint from template"
+                        ;;
+                esac
+                ;;
+            *)
+                echo "Usage: gua path <init|state|purpose|waypoint|template|session|assess|validate|adjust|status> [args]"
+                echo ""
+                echo "Path Protocol - Purpose-driven development with validated waypoints"
+                echo ""
+                echo "Commands:"
+                echo "  init [project]           Initialize path protocol for project"
+                echo "  state [path]             Show current state assessment"
+                echo "  purpose [path]           Show purpose definition"
+                echo "  waypoint <cmd>           Manage waypoints (add|list|update|current)"
+                echo "  template <cmd>           Use waypoint templates (list|use)"
+                echo "  session <cmd>            Session management (start|end)"
+                echo "  assess [path]            Run comprehensive assessment (E2E + status)"
+                echo "  validate [path] [wp]     Validate current/specific waypoint"
+                echo "  adjust \"<reason>\"        Log path adjustment"
+                echo "  status [path]            Show comprehensive path status"
+                echo ""
+                echo "Session Workflow:"
+                echo "  source ~/.gua/path-session-start.sh  # Start session"
+                echo "  ... (Light-Ahead Loop) ..."
+                echo "  source ~/.gua/path-session-end.sh    # End session"
+                echo ""
+                echo "Light-Ahead Loop:"
+                echo "  1. ASSESS:   e2e path-assess"
+                echo "  2. RESEARCH: gua research \"topic\" \"finding\""
+                echo "  3. BUILD:    [code] + gua area update <id> --impl %"
+                echo "  4. VALIDATE: e2e path-validate"
+                echo "  5. CAPTURE:  gua progress snapshot"
+                ;;
+        esac
+        ;;
+    # Knowledge Tree
+    tree)
+        cmd_tree "$2" "$3" "$4"
+        ;;
+    # Quick Context
+    context)
+        cmd_context "$2" "$3"
+        ;;
     help|--help|-h)
         echo "GUA - Global Understanding Archive"
+        echo ""
+        echo "Setup & Authentication:"
+        echo "  init [--force]          Run setup wizard"
+        echo "  whoami                  Show current user/device identity"
+        echo "  auth verify             Check authentication status"
+        echo "  auth refresh            Re-verify AWS credentials"
         echo ""
         echo "Core Commands:"
         echo "  load                    Download all understanding from AWS"
@@ -2930,6 +4763,33 @@ case "${1:-}" in
         echo "  dev context <platform>  Load context for platform"
         echo "  dev promote <challenge_id> --platform P --domain D"
         echo "                          Promote challenge to dev knowledge"
+        echo ""
+        echo "Directory Knowledge (Hierarchical):"
+        echo "  dir init [path]         Initialize .gua/ in directory"
+        echo "  dir init-global         Initialize ~/.gua/global/"
+        echo "  dir add <type> <name>   Add knowledge (pattern, context, gotcha, domain)"
+        echo "  dir show [path]         Show knowledge in directory"
+        echo "  dir ancestry [path]     Show inheritance chain"
+        echo "  dir effective [path]    Show merged/resolved knowledge"
+        echo ""
+        echo "  tree [path] [depth]     Show knowledge tree"
+        echo "  context [path]          Quick context access"
+        echo ""
+        echo "Path Protocol (Purpose-driven development):"
+        echo "  path init [project]     Initialize path protocol"
+        echo "  path state [path]       Show current state assessment"
+        echo "  path purpose [path]     Show purpose definition"
+        echo "  path waypoint add <name> [pred]"
+        echo "                          Add a waypoint milestone"
+        echo "  path waypoint list      List all waypoints"
+        echo "  path waypoint update <id> [--status S] [--impl N]"
+        echo "                          Update waypoint progress"
+        echo "  path waypoint current [id]"
+        echo "                          Show/set current waypoint"
+        echo "  path assess [path]      Run comprehensive assessment"
+        echo "  path validate [wp]      Validate waypoint"
+        echo "  path adjust \"reason\"    Log path adjustment"
+        echo "  path status [path]      Show path status dashboard"
         echo ""
         echo "Setup: ~/.gua/setup.sh"
         echo "Upgrade to v2: ~/.gua/upgrade-v2.sh"

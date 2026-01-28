@@ -1,0 +1,12 @@
+{
+  "id": "W2",
+  "name": "E2E Testing Integration",
+  "predecessor": "W1",
+  "successor": null,
+  "status": "completed",
+  "impl": 100,
+  "depth": "L3",
+  "createdAt": "2026-01-28T17:45:00Z",
+  "updatedAt": "2026-01-28T18:02:28Z",
+  "validatedAt": null
+}

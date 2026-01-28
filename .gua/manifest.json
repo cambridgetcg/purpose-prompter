@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "createdAt": "2026-01-28T14:30:36Z",
+  "updatedAt": "2026-01-28T17:38:17Z",
+  "path": "/Users/yu/desktop/purpose_prompter",
+  "scope": "project",
+  "counts": {
+    "patterns": 2,
+    "contexts": 0,
+    "gotchas": 0,
+    "overrides": 0,
+    "domains": 0
+  }
+}

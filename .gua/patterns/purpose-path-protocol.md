@@ -1,0 +1,1 @@
+Purpose Path Protocol: Systematic approach for building paths from current state to purpose using E2E testing and research as 'light-ahead' mechanisms. Includes waypoint system, validation loops, and path adjustment protocols.

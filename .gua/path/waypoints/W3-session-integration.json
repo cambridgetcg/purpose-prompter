@@ -1,0 +1,12 @@
+{
+  "id": "W3",
+  "name": "Session Integration",
+  "predecessor": "W2",
+  "successor": "W4",
+  "status": "completed",
+  "impl": 100,
+  "depth": "L3",
+  "createdAt": "2026-01-28T17:45:00Z",
+  "updatedAt": "2026-01-28T19:15:00Z",
+  "validatedAt": "2026-01-28T19:15:00Z"
+}

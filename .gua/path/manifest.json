@@ -1,0 +1,10 @@
+{
+  "version": "1.0.0",
+  "project": "purpose_prompter",
+  "createdAt": "2026-01-28T17:44:46Z",
+  "updatedAt": "2026-01-28T19:15:00Z",
+  "currentWaypoint": "W4",
+  "waypointCount": 4,
+  "purposeDefined": false,
+  "stateDefined": false
+}

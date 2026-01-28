@@ -1,0 +1,13 @@
+{
+  "id": "W4",
+  "name": "User Authentication",
+  "template": "feature",
+  "predecessor": "W3",
+  "successor": null,
+  "status": "completed",
+  "impl": 100,
+  "depth": "L3",
+  "createdAt": "2026-01-28T17:47:46Z",
+  "updatedAt": "2026-01-28T19:30:00Z",
+  "validatedAt": "2026-01-28T19:30:00Z"
+}
