@@ -41,6 +41,7 @@ Contents:
 | `project-status-index` | CPT: Query areas by project and status |
 | `eureka-type-index` | Eureka: Query by eureka type |
 | `session-eurekas-index` | Eureka: Query eurekas by session |
+| `platform-domain-index` | Dev Knowledge: Query by platform+domain |
 
 ---
 
@@ -108,6 +109,7 @@ Contents:
 | `challenge` | CPT: Logged challenges | area_id, pp_dimension, category, status |
 | `eureka_moment` | Eureka: Ahh hah moments | eureka_type, catalyst, session_id |
 | `progress_snapshot` | CPT: Daily snapshots | project, date |
+| `dev_knowledge` | Dev: Platform-specific knowledge | platform, domain, dev_type |
 
 ---
 
@@ -157,6 +159,19 @@ Contents:
 ~/.gua/gua.sh eureka list [--type T] [--limit N]
 ~/.gua/gua.sh eureka show <id>
 ~/.gua/gua.sh eureka promote <id>
+```
+
+### Dev Knowledge (Platform-Specific)
+```bash
+~/.gua/gua.sh dev add <platform> <domain> <type> "<title>" [--code "..." --tags "..."]
+~/.gua/gua.sh dev list [platform] [domain]
+~/.gua/gua.sh dev search "<query>" [--platform P] [--domain D]
+~/.gua/gua.sh dev show <id>
+~/.gua/gua.sh dev context <platform> [domain]
+~/.gua/gua.sh dev promote <challenge_id> --platform P --domain D
+# Platforms: shopify, sentry, prisma, aws, vercel, nextjs, react, typescript, general
+# Domains: auth, data, api, ui, deployment, testing, performance, security
+# Types: pattern, recipe, gotcha, error_fix, config, migration
 ```
 
 ### Knowledge Index (v2)
@@ -283,6 +298,14 @@ If you find yourself thinking:
 ---
 
 ## Version History
+
+- **2.1** (2026-01-28): Dev Knowledge Extension
+  - Platform-specific development knowledge capture
+  - 9 platforms: shopify, sentry, prisma, aws, vercel, nextjs, react, typescript, general
+  - 8 domains: auth, data, api, ui, deployment, testing, performance, security
+  - 6 types: pattern, recipe, gotcha, error_fix, config, migration
+  - New GSI: platform-domain-index
+  - Challenge to dev knowledge promotion
 
 - **2.0** (2026-01-27): Full GUA v2 with CPT + Eureka Recorder
   - Knowledge index with GSIs

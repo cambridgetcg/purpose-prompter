@@ -322,15 +322,32 @@ cmd_save() {
 # ============================================================
 # RESEARCH - Log a research finding
 # ============================================================
-cmd_research() {
+cmd_research_list() {
+    local limit="${1:-10}"
+
+    load_config
+
+    echo -e "${BLUE}[GUA] Recent Research Entries (limit: $limit)${NC}"
+    echo ""
+
+    aws dynamodb query \
+        --table-name "gua-research" \
+        --key-condition-expression "user_id = :uid" \
+        --expression-attribute-values "{\":uid\": {\"S\": \"$USER_ID\"}}" \
+        --no-scan-index-forward \
+        --limit "$limit" \
+        --region "$REGION" 2>/dev/null | jq -r '.Items[] | "\(.timestamp_uuid.S | split("#")[0]) | \(.topic.S) | \(.finding.S | .[0:80])..."'
+}
+
+cmd_research_log() {
     local topic="$1"
     local finding="$2"
     local source="${3:-manual}"
     local confidence="${4:-medium}"
 
     if [[ -z "$topic" || -z "$finding" ]]; then
-        echo -e "${RED}Usage: gua research <topic> <finding> [source] [confidence]${NC}"
-        echo "Example: gua research 'vector databases' 'ChromaDB is free under 10M vectors' 'docs' 'high'"
+        echo -e "${RED}Usage: gua research log <topic> <finding> [source] [confidence]${NC}"
+        echo "Example: gua research log 'vector databases' 'ChromaDB is free under 10M vectors' 'docs' 'high'"
         exit 1
     fi
 
@@ -365,7 +382,24 @@ cmd_research() {
 # ============================================================
 # INSIGHT - Log an insight with taxonomy metadata
 # ============================================================
-cmd_insight() {
+cmd_insight_list() {
+    local limit="${1:-10}"
+
+    load_config
+
+    echo -e "${BLUE}[GUA] Recent Insight Entries (limit: $limit)${NC}"
+    echo ""
+
+    aws dynamodb query \
+        --table-name "gua-insights" \
+        --key-condition-expression "user_id = :uid" \
+        --expression-attribute-values "{\":uid\": {\"S\": \"$USER_ID\"}}" \
+        --no-scan-index-forward \
+        --limit "$limit" \
+        --region "$REGION" 2>/dev/null | jq -r '.Items[] | "\(.timestamp_uuid.S | split("#")[0]) | \(.type.S // "insight") | \(.pp_dimension.S // "unknown") | \(.content.S | .[0:60])..."'
+}
+
+cmd_insight_log() {
     local content="$1"
     local type="${2:-observation}"
     local evidence="${3:-}"
@@ -373,7 +407,7 @@ cmd_insight() {
     local scope="${5:-global}"
 
     if [[ -z "$content" ]]; then
-        echo -e "${RED}Usage: gua insight <content> [type] [evidence] [pp_dimension] [scope]${NC}"
+        echo -e "${RED}Usage: gua insight log <content> [type] [evidence] [pp_dimension] [scope]${NC}"
         echo ""
         echo "Types: observation, pattern, blindspot, hypothesis, anti-pattern, technique, principle, model"
         echo "PP Dimensions: truth, understanding, beauty, justice, creativity"
@@ -1566,7 +1600,7 @@ cmd_challenge_promote() {
         content="$learnings (from challenge: $description)"
     fi
 
-    cmd_insight "$content" "pattern" "CPT challenge resolution" "$pp_dimension" "global"
+    cmd_insight_log "$content" "pattern" "CPT challenge resolution" "$pp_dimension" "global"
 
     # Mark challenge as promoted
     aws dynamodb update-item \
@@ -1959,7 +1993,7 @@ cmd_eureka_promote() {
     esac
 
     # Create insight
-    cmd_insight "$content" "$insight_type" "Eureka: $catalyst" "$pp_dimension" "global"
+    cmd_insight_log "$content" "$insight_type" "Eureka: $catalyst" "$pp_dimension" "global"
 
     # Mark eureka as promoted
     aws dynamodb update-item \
@@ -2089,6 +2123,527 @@ cmd_eureka_analyze() {
 }
 
 # ============================================================
+# DEV KNOWLEDGE - Platform-specific development knowledge
+# ============================================================
+
+# Valid platforms and domains
+DEV_PLATFORMS="shopify sentry prisma aws vercel nextjs react typescript general"
+DEV_DOMAINS="auth data api ui deployment testing performance security"
+DEV_TYPES="pattern recipe gotcha error_fix config migration"
+
+# Generate short hash for ID
+short_hash() {
+    echo "$1" | md5 | head -c 8
+}
+
+cmd_dev_add() {
+    local platform="$1"
+    local domain="$2"
+    local dev_type="$3"
+    local title="$4"
+    shift 4
+
+    # Parse optional flags
+    local code_snippet=""
+    local tags=""
+    local error_codes=""
+    local description=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --code)
+                code_snippet="$2"
+                shift 2
+                ;;
+            --tags)
+                tags="$2"
+                shift 2
+                ;;
+            --error)
+                error_codes="$2"
+                shift 2
+                ;;
+            --desc)
+                description="$2"
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    # Validate inputs
+    if [[ -z "$platform" || -z "$domain" || -z "$dev_type" || -z "$title" ]]; then
+        echo -e "${RED}Usage: gua dev add <platform> <domain> <type> \"<title>\" [options]${NC}"
+        echo ""
+        echo "Platforms: $DEV_PLATFORMS"
+        echo "Domains: $DEV_DOMAINS"
+        echo "Types: $DEV_TYPES"
+        echo ""
+        echo "Options:"
+        echo "  --code \"<snippet>\"   Code example"
+        echo "  --tags \"tag1,tag2\"   Comma-separated tags"
+        echo "  --error \"ERROR_CODE\" Related error code"
+        echo "  --desc \"<text>\"      Extended description"
+        echo ""
+        echo "Example:"
+        echo "  gua dev add shopify api gotcha \"GraphQL requires explicit versioning\""
+        exit 1
+    fi
+
+    # Validate platform
+    if ! echo "$DEV_PLATFORMS" | grep -qw "$platform"; then
+        echo -e "${RED}Invalid platform: $platform${NC}"
+        echo "Valid platforms: $DEV_PLATFORMS"
+        exit 1
+    fi
+
+    # Validate domain
+    if ! echo "$DEV_DOMAINS" | grep -qw "$domain"; then
+        echo -e "${RED}Invalid domain: $domain${NC}"
+        echo "Valid domains: $DEV_DOMAINS"
+        exit 1
+    fi
+
+    # Validate type
+    if ! echo "$DEV_TYPES" | grep -qw "$dev_type"; then
+        echo -e "${RED}Invalid type: $dev_type${NC}"
+        echo "Valid types: $DEV_TYPES"
+        exit 1
+    fi
+
+    load_config
+
+    local ts=$(timestamp)
+    local hash=$(short_hash "${platform}${domain}${title}${ts}")
+    local knowledge_id="dev#${platform}#${domain}#${hash}"
+    local platform_domain="${platform}#${domain}"
+
+    # Map dev_type to PP dimension
+    local pp_dimension
+    case "$dev_type" in
+        pattern|recipe) pp_dimension="beauty" ;;
+        gotcha|error_fix) pp_dimension="truth" ;;
+        config) pp_dimension="justice" ;;
+        migration) pp_dimension="creativity" ;;
+        *) pp_dimension="understanding" ;;
+    esac
+
+    # Build item JSON
+    local item="{
+        \"user_id\": {\"S\": \"$USER_ID\"},
+        \"knowledge_id\": {\"S\": \"$knowledge_id\"},
+        \"knowledge_type\": {\"S\": \"dev_knowledge\"},
+        \"platform\": {\"S\": \"$platform\"},
+        \"domain\": {\"S\": \"$domain\"},
+        \"platform_domain\": {\"S\": \"$platform_domain\"},
+        \"dev_type\": {\"S\": \"$dev_type\"},
+        \"title\": {\"S\": \"$title\"},
+        \"description\": {\"S\": \"${description:-$title}\"},
+        \"pp_dimension\": {\"S\": \"$pp_dimension\"},
+        \"confidence\": {\"S\": \"confirmed\"},
+        \"scope\": {\"S\": \"global\"},
+        \"access_count\": {\"N\": \"0\"},
+        \"access_score\": {\"N\": \"0\"},
+        \"created_at\": {\"S\": \"$ts\"},
+        \"device_id\": {\"S\": \"$DEVICE_ID\"}"
+
+    # Add optional fields
+    if [[ -n "$code_snippet" ]]; then
+        item="$item, \"code_snippet\": {\"S\": $(echo "$code_snippet" | jq -Rs .)}"
+    fi
+
+    if [[ -n "$tags" ]]; then
+        local tags_list=$(echo "$tags" | tr ',' '\n' | jq -R . | jq -s 'map({S: .})')
+        item="$item, \"tags\": {\"L\": $tags_list}"
+    fi
+
+    if [[ -n "$error_codes" ]]; then
+        item="$item, \"error_codes\": {\"SS\": [\"$error_codes\"]}"
+    fi
+
+    item="$item}"
+
+    aws dynamodb put-item \
+        --table-name "gua-knowledge-index" \
+        --item "$item" \
+        --region "$REGION"
+
+    echo -e "${GREEN}[DEV] Knowledge captured!${NC}"
+    echo "  ID: $knowledge_id"
+    echo "  Platform: $platform"
+    echo "  Domain: $domain"
+    echo "  Type: $dev_type"
+    echo "  Title: $title"
+    [[ -n "$code_snippet" ]] && echo "  Code: (included)"
+    [[ -n "$tags" ]] && echo "  Tags: $tags"
+}
+
+cmd_dev_list() {
+    local platform="${1:-}"
+    local domain="${2:-}"
+
+    load_config
+
+    echo -e "${BLUE}[DEV] Development Knowledge${NC}"
+
+    if [[ -z "$platform" ]]; then
+        # List all platforms with counts
+        echo ""
+        echo "By Platform:"
+        aws dynamodb scan \
+            --table-name "gua-knowledge-index" \
+            --filter-expression "user_id = :uid AND knowledge_type = :kt" \
+            --expression-attribute-values "{\":uid\": {\"S\": \"$USER_ID\"}, \":kt\": {\"S\": \"dev_knowledge\"}}" \
+            --region "$REGION" 2>/dev/null | \
+            jq -r '[.Items[].platform.S] | group_by(.) | map({platform: .[0], count: length}) | sort_by(-.count) | .[] | "  \(.platform): \(.count)"'
+        echo ""
+        echo "Usage: gua dev list <platform> [domain]"
+        return
+    fi
+
+    echo ""
+    echo "Platform: $platform"
+    [[ -n "$domain" ]] && echo "Domain: $domain"
+    echo ""
+
+    local filter_expr="user_id = :uid AND knowledge_type = :kt AND platform = :p"
+    local attr_values="{\":uid\": {\"S\": \"$USER_ID\"}, \":kt\": {\"S\": \"dev_knowledge\"}, \":p\": {\"S\": \"$platform\"}}"
+
+    if [[ -n "$domain" ]]; then
+        filter_expr="$filter_expr AND #dom = :d"
+        attr_values=$(echo "$attr_values" | sed 's/}$/, ":d": {"S": "'"$domain"'"}}/')
+    fi
+
+    local results
+    if [[ -n "$domain" ]]; then
+        results=$(aws dynamodb scan \
+            --table-name "gua-knowledge-index" \
+            --filter-expression "$filter_expr" \
+            --expression-attribute-values "$attr_values" \
+            --expression-attribute-names '{"#dom": "domain"}' \
+            --region "$REGION" 2>/dev/null)
+    else
+        results=$(aws dynamodb scan \
+            --table-name "gua-knowledge-index" \
+            --filter-expression "$filter_expr" \
+            --expression-attribute-values "$attr_values" \
+            --region "$REGION" 2>/dev/null)
+    fi
+
+    local count=$(echo "$results" | jq '.Count // 0')
+
+    if [[ "$count" == "0" ]]; then
+        echo "No dev knowledge found."
+        return
+    fi
+
+    echo "$results" | jq -r '.Items | sort_by(.access_score.N // "0" | tonumber) | reverse | .[] | "[\(.dev_type.S | ascii_upcase)] \(.title.S)\n    Domain: \(.domain.S) | ID: \(.knowledge_id.S | split("#")[3])"'
+}
+
+cmd_dev_search() {
+    local query="$1"
+    shift
+
+    # Parse flags
+    local platform=""
+    local domain=""
+    local dev_type=""
+    local limit="20"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --platform) platform="$2"; shift 2 ;;
+            --domain) domain="$2"; shift 2 ;;
+            --type) dev_type="$2"; shift 2 ;;
+            --limit) limit="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    if [[ -z "$query" ]]; then
+        echo -e "${RED}Usage: gua dev search \"<query>\" [--platform P] [--domain D] [--type T]${NC}"
+        exit 1
+    fi
+
+    load_config
+
+    echo -e "${BLUE}[DEV] Searching: $query${NC}"
+    [[ -n "$platform" ]] && echo "  Platform: $platform"
+    [[ -n "$domain" ]] && echo "  Domain: $domain"
+    echo ""
+
+    # Build filter
+    local filter_expr="user_id = :uid AND knowledge_type = :kt AND (contains(title, :q) OR contains(description, :q))"
+    local attr_values="{\":uid\": {\"S\": \"$USER_ID\"}, \":kt\": {\"S\": \"dev_knowledge\"}, \":q\": {\"S\": \"$query\"}}"
+    local attr_names="{}"
+
+    if [[ -n "$platform" ]]; then
+        filter_expr="$filter_expr AND platform = :p"
+        attr_values=$(echo "$attr_values" | sed 's/}$/, ":p": {"S": "'"$platform"'"}}/')
+    fi
+
+    if [[ -n "$domain" ]]; then
+        filter_expr="$filter_expr AND #dom = :d"
+        attr_values=$(echo "$attr_values" | sed 's/}$/, ":d": {"S": "'"$domain"'"}}/')
+        attr_names='{"#dom": "domain"}'
+    fi
+
+    local results
+    if [[ "$attr_names" != "{}" ]]; then
+        results=$(aws dynamodb scan \
+            --table-name "gua-knowledge-index" \
+            --filter-expression "$filter_expr" \
+            --expression-attribute-values "$attr_values" \
+            --expression-attribute-names "$attr_names" \
+            --region "$REGION" 2>/dev/null)
+    else
+        results=$(aws dynamodb scan \
+            --table-name "gua-knowledge-index" \
+            --filter-expression "$filter_expr" \
+            --expression-attribute-values "$attr_values" \
+            --region "$REGION" 2>/dev/null)
+    fi
+
+    local count=$(echo "$results" | jq '.Count // 0')
+
+    if [[ "$count" == "0" ]]; then
+        echo "No results found."
+        return
+    fi
+
+    echo "Found $count matches:"
+    echo ""
+    echo "$results" | jq -r '.Items | sort_by(.access_score.N // "0" | tonumber) | reverse | .[] | "[\(.platform.S)/\(.domain.S)] \(.title.S)\n    Type: \(.dev_type.S) | ID: \(.knowledge_id.S)"'
+}
+
+cmd_dev_show() {
+    local id="$1"
+
+    if [[ -z "$id" ]]; then
+        echo -e "${RED}Usage: gua dev show <id>${NC}"
+        echo "Use 'gua dev list' to find IDs"
+        exit 1
+    fi
+
+    load_config
+
+    # If short ID provided, search for it
+    if [[ ! "$id" =~ ^dev# ]]; then
+        id=$(aws dynamodb scan \
+            --table-name "gua-knowledge-index" \
+            --filter-expression "user_id = :uid AND contains(knowledge_id, :id)" \
+            --expression-attribute-values "{\":uid\": {\"S\": \"$USER_ID\"}, \":id\": {\"S\": \"$id\"}}" \
+            --region "$REGION" 2>/dev/null | jq -r '.Items[0].knowledge_id.S // empty')
+
+        if [[ -z "$id" ]]; then
+            echo -e "${RED}Dev knowledge not found: $1${NC}"
+            exit 1
+        fi
+    fi
+
+    local item=$(aws dynamodb get-item \
+        --table-name "gua-knowledge-index" \
+        --key "{\"user_id\": {\"S\": \"$USER_ID\"}, \"knowledge_id\": {\"S\": \"$id\"}}" \
+        --region "$REGION" 2>/dev/null | jq '.Item')
+
+    if [[ "$item" == "null" || -z "$item" ]]; then
+        echo -e "${RED}Dev knowledge not found${NC}"
+        exit 1
+    fi
+
+    echo -e "${BLUE}[DEV] Knowledge Details${NC}"
+    echo ""
+    echo "ID: $(echo "$item" | jq -r '.knowledge_id.S')"
+    echo "Platform: $(echo "$item" | jq -r '.platform.S')"
+    echo "Domain: $(echo "$item" | jq -r '.domain.S')"
+    echo "Type: $(echo "$item" | jq -r '.dev_type.S')"
+    echo ""
+    echo "Title: $(echo "$item" | jq -r '.title.S')"
+    echo ""
+    echo "Description:"
+    echo "  $(echo "$item" | jq -r '.description.S')"
+
+    local code=$(echo "$item" | jq -r '.code_snippet.S // empty')
+    if [[ -n "$code" ]]; then
+        echo ""
+        echo "Code:"
+        echo "$code" | sed 's/^/  /'
+    fi
+
+    local tags=$(echo "$item" | jq -r '.tags.L // empty | map(.S) | join(", ")')
+    if [[ -n "$tags" ]]; then
+        echo ""
+        echo "Tags: $tags"
+    fi
+
+    local errors=$(echo "$item" | jq -r '.error_codes.SS // empty | join(", ")')
+    if [[ -n "$errors" ]]; then
+        echo ""
+        echo "Error Codes: $errors"
+    fi
+
+    echo ""
+    echo "PP Dimension: $(echo "$item" | jq -r '.pp_dimension.S')"
+    echo "Access Count: $(echo "$item" | jq -r '.access_count.N // "0"')"
+    echo "Created: $(echo "$item" | jq -r '.created_at.S')"
+
+    # Track access
+    cmd_dev_track "$id" 2>/dev/null || true
+}
+
+cmd_dev_track() {
+    local id="$1"
+
+    if [[ -z "$id" ]]; then
+        return
+    fi
+
+    load_config
+
+    aws dynamodb update-item \
+        --table-name "gua-knowledge-index" \
+        --key "{\"user_id\": {\"S\": \"$USER_ID\"}, \"knowledge_id\": {\"S\": \"$id\"}}" \
+        --update-expression "SET access_count = if_not_exists(access_count, :zero) + :one, access_score = if_not_exists(access_score, :zero) + :one" \
+        --expression-attribute-values "{\":one\": {\"N\": \"1\"}, \":zero\": {\"N\": \"0\"}}" \
+        --region "$REGION" 2>/dev/null
+}
+
+cmd_dev_context() {
+    local platform="${1:-}"
+    local domain="${2:-}"
+
+    if [[ -z "$platform" ]]; then
+        echo -e "${RED}Usage: gua dev context <platform> [domain]${NC}"
+        echo "Platforms: $DEV_PLATFORMS"
+        exit 1
+    fi
+
+    load_config
+
+    echo -e "${BLUE}[DEV] Context: $platform${NC}"
+    [[ -n "$domain" ]] && echo "Domain: $domain"
+    echo ""
+
+    # Use GSI for efficient query
+    local platform_domain="${platform}"
+    [[ -n "$domain" ]] && platform_domain="${platform}#${domain}"
+
+    local results
+    if [[ -n "$domain" ]]; then
+        results=$(aws dynamodb query \
+            --table-name "gua-knowledge-index" \
+            --index-name "platform-domain-index" \
+            --key-condition-expression "platform_domain = :pd" \
+            --expression-attribute-values "{\":pd\": {\"S\": \"$platform_domain\"}}" \
+            --no-scan-index-forward \
+            --limit 20 \
+            --region "$REGION" 2>/dev/null)
+    else
+        # Without domain, scan for platform
+        results=$(aws dynamodb scan \
+            --table-name "gua-knowledge-index" \
+            --filter-expression "user_id = :uid AND knowledge_type = :kt AND platform = :p" \
+            --expression-attribute-values "{\":uid\": {\"S\": \"$USER_ID\"}, \":kt\": {\"S\": \"dev_knowledge\"}, \":p\": {\"S\": \"$platform\"}}" \
+            --region "$REGION" 2>/dev/null)
+    fi
+
+    local count=$(echo "$results" | jq '.Count // 0')
+
+    if [[ "$count" == "0" ]]; then
+        echo "No dev knowledge for $platform"
+        return
+    fi
+
+    echo "Top knowledge ($count total):"
+    echo ""
+
+    # Group by type
+    echo "GOTCHAS:"
+    echo "$results" | jq -r '.Items[] | select(.dev_type.S == "gotcha") | "  - \(.title.S)"' | head -5
+
+    echo ""
+    echo "PATTERNS:"
+    echo "$results" | jq -r '.Items[] | select(.dev_type.S == "pattern") | "  - \(.title.S)"' | head -5
+
+    echo ""
+    echo "ERROR FIXES:"
+    echo "$results" | jq -r '.Items[] | select(.dev_type.S == "error_fix") | "  - \(.title.S)"' | head -5
+
+    # Track access for loaded items
+    echo "$results" | jq -r '.Items[].knowledge_id.S' | while read kid; do
+        cmd_dev_track "$kid" 2>/dev/null || true
+    done
+}
+
+cmd_dev_promote() {
+    local challenge_id="$1"
+    shift
+
+    # Parse flags
+    local platform=""
+    local domain=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --platform) platform="$2"; shift 2 ;;
+            --domain) domain="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    if [[ -z "$challenge_id" || -z "$platform" || -z "$domain" ]]; then
+        echo -e "${RED}Usage: gua dev promote <challenge_id> --platform <p> --domain <d>${NC}"
+        exit 1
+    fi
+
+    load_config
+
+    # Get challenge details
+    local challenge=$(aws dynamodb get-item \
+        --table-name "gua-knowledge-index" \
+        --key "{\"user_id\": {\"S\": \"$USER_ID\"}, \"knowledge_id\": {\"S\": \"$challenge_id\"}}" \
+        --region "$REGION" 2>/dev/null | jq '.Item')
+
+    if [[ "$challenge" == "null" || -z "$challenge" ]]; then
+        echo -e "${RED}Challenge not found: $challenge_id${NC}"
+        exit 1
+    fi
+
+    local description=$(echo "$challenge" | jq -r '.description.S')
+    local resolution=$(echo "$challenge" | jq -r '.resolution.S // empty')
+    local category=$(echo "$challenge" | jq -r '.category.S // "gotcha"')
+
+    # Map category to dev_type
+    local dev_type
+    case "$category" in
+        bug) dev_type="error_fix" ;;
+        confusion) dev_type="gotcha" ;;
+        ugly_hack) dev_type="pattern" ;;
+        wrong_place) dev_type="config" ;;
+        dead_end) dev_type="recipe" ;;
+        *) dev_type="gotcha" ;;
+    esac
+
+    local title="${resolution:-$description}"
+
+    # Create dev knowledge
+    cmd_dev_add "$platform" "$domain" "$dev_type" "$title" --desc "$description"
+
+    # Update challenge with promotion reference
+    aws dynamodb update-item \
+        --table-name "gua-knowledge-index" \
+        --key "{\"user_id\": {\"S\": \"$USER_ID\"}, \"knowledge_id\": {\"S\": \"$challenge_id\"}}" \
+        --update-expression "SET promoted_to_dev = :dev" \
+        --expression-attribute-values "{\":dev\": {\"BOOL\": true}}" \
+        --region "$REGION" 2>/dev/null
+
+    echo ""
+    echo -e "${GREEN}Challenge promoted to dev knowledge!${NC}"
+}
+
+# ============================================================
 # MAIN
 # ============================================================
 check_deps
@@ -2107,10 +2662,18 @@ case "${1:-}" in
         cmd_save_knowledge
         ;;
     research)
-        cmd_research "$2" "$3" "$4" "$5"
+        case "$2" in
+            list) cmd_research_list "$3" ;;
+            log) cmd_research_log "$3" "$4" "$5" "$6" ;;
+            *) cmd_research_log "$2" "$3" "$4" "$5" ;;  # Default to log for backward compat
+        esac
         ;;
     insight)
-        cmd_insight "$2" "$3" "$4" "$5" "$6"
+        case "$2" in
+            list) cmd_insight_list "$3" ;;
+            log) cmd_insight_log "$3" "$4" "$5" "$6" "$7" ;;
+            *) cmd_insight_log "$2" "$3" "$4" "$5" "$6" ;;  # Default to log for backward compat
+        esac
         ;;
     promote)
         cmd_promote "$2" "$3"
@@ -2235,6 +2798,52 @@ case "${1:-}" in
                 ;;
         esac
         ;;
+    # Dev Knowledge - Platform-specific development knowledge
+    dev)
+        case "${2:-}" in
+            add)
+                cmd_dev_add "$3" "$4" "$5" "$6" "${@:7}"
+                ;;
+            list)
+                cmd_dev_list "$3" "$4"
+                ;;
+            search)
+                cmd_dev_search "$3" "${@:4}"
+                ;;
+            show)
+                cmd_dev_show "$3"
+                ;;
+            track)
+                cmd_dev_track "$3"
+                ;;
+            context)
+                cmd_dev_context "$3" "$4"
+                ;;
+            promote)
+                cmd_dev_promote "$3" "${@:4}"
+                ;;
+            *)
+                echo "Usage: gua dev <add|list|search|show|context|promote> [args]"
+                echo ""
+                echo "Commands:"
+                echo "  add <platform> <domain> <type> \"<title>\" [options]"
+                echo "                          Capture dev knowledge"
+                echo "  list [platform] [domain]"
+                echo "                          List dev knowledge by platform"
+                echo "  search \"<query>\" [--platform P] [--domain D]"
+                echo "                          Search dev knowledge"
+                echo "  show <id>               Show full details"
+                echo "  context <platform> [domain]"
+                echo "                          Load context for platform"
+                echo "  promote <challenge_id> --platform P --domain D"
+                echo "                          Promote challenge to dev knowledge"
+                echo ""
+                echo "Platforms: shopify, sentry, prisma, aws, vercel, nextjs, react, typescript, general"
+                echo "Domains: auth, data, api, ui, deployment, testing, performance, security"
+                echo "Types: pattern, recipe, gotcha, error_fix, config, migration"
+                ;;
+        esac
+        ;;
     help|--help|-h)
         echo "GUA - Global Understanding Archive"
         echo ""
@@ -2306,9 +2915,26 @@ case "${1:-}" in
         echo "  eureka session [id]     Show eurekas from session"
         echo "  eureka analyze          Analyze eureka patterns"
         echo ""
+        echo "Dev Knowledge (Platform-specific):"
+        echo "  dev add <platform> <domain> <type> \"<title>\" [options]"
+        echo "                          Capture dev knowledge"
+        echo "                          Platforms: shopify, sentry, prisma, aws, vercel, nextjs, react, typescript, general"
+        echo "                          Domains: auth, data, api, ui, deployment, testing, performance, security"
+        echo "                          Types: pattern, recipe, gotcha, error_fix, config, migration"
+        echo "                          Options: --code, --tags, --error, --desc"
+        echo "  dev list [platform] [domain]"
+        echo "                          List dev knowledge"
+        echo "  dev search \"<query>\" [--platform P] [--domain D]"
+        echo "                          Search dev knowledge"
+        echo "  dev show <id>           Show full details"
+        echo "  dev context <platform>  Load context for platform"
+        echo "  dev promote <challenge_id> --platform P --domain D"
+        echo "                          Promote challenge to dev knowledge"
+        echo ""
         echo "Setup: ~/.gua/setup.sh"
         echo "Upgrade to v2: ~/.gua/upgrade-v2.sh"
         echo "Enable CPT: ~/.gua/upgrade-cpt.sh"
+        echo "Enable Dev Knowledge: ~/.gua/upgrade-dev.sh"
         ;;
     *)
         echo -e "${RED}Unknown command: ${1:-none}${NC}"

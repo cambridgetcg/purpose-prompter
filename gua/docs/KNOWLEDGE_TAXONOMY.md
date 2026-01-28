@@ -52,6 +52,7 @@ Every piece of knowledge in GUA exists in a 5-dimensional space:
 | `code_area` | Tracked code region (CPT) | Implementation + understanding |
 | `challenge` | Problem encountered (CPT) | PP dimension mapping |
 | `progress_snapshot` | Point-in-time state (CPT) | Daily progress capture |
+| `dev_knowledge` | Platform-specific dev knowledge | API patterns, gotchas, recipes |
 
 ### Dimension 5: Temporal Status
 
@@ -205,6 +206,93 @@ Challenges can be **promoted** to GUA insights when resolved:
 2. Use `gua challenge promote <id>`
 3. Learning becomes a pattern/technique in GUA
 4. Cross-project patterns emerge from repeated challenges
+
+---
+
+## Dev Knowledge Entity (Platform-Specific)
+
+Dev Knowledge captures platform-specific development knowledge: API patterns, gotchas, recipes, and error fixes across ecosystems.
+
+### Schema
+
+```json
+{
+  "knowledge_type": "dev_knowledge",
+  "knowledge_id": "dev#{platform}#{domain}#{hash}",
+  "platform": "shopify",
+  "domain": "api",
+  "platform_domain": "shopify#api",
+  "dev_type": "gotcha",
+  "title": "GraphQL Admin API requires explicit apiVersion",
+  "description": "Always include apiVersion in admin.graphql() calls",
+  "code_snippet": "await admin.graphql(query, { apiVersion: '2025-01' })",
+  "tags": ["graphql", "versioning"],
+  "error_codes": ["INVALID_API_VERSION"],
+  "pp_dimension": "truth",
+  "confidence": "confirmed",
+  "scope": "global",
+  "access_count": 0,
+  "access_score": 0,
+  "created_at": "2026-01-28T10:00:00Z"
+}
+```
+
+### Platform Values
+
+| Platform | Description |
+|----------|-------------|
+| `shopify` | Shopify APIs, Polaris, Hydrogen, Liquid |
+| `sentry` | Sentry error tracking, MCP tools |
+| `prisma` | Prisma ORM, migrations, schema |
+| `aws` | AWS services (DynamoDB, S3, Lambda) |
+| `vercel` | Vercel deployment, Edge, serverless |
+| `nextjs` | Next.js App Router, RSC, middleware |
+| `react` | React patterns, hooks, state |
+| `typescript` | TypeScript patterns, types |
+| `general` | Cross-platform patterns |
+
+### Domain Values
+
+| Domain | Description |
+|--------|-------------|
+| `auth` | Authentication, authorization, sessions |
+| `data` | Data modeling, schemas, migrations |
+| `api` | API design, GraphQL, REST, webhooks |
+| `ui` | UI components, styling, accessibility |
+| `deployment` | Build, deploy, CI/CD, environments |
+| `testing` | Testing patterns, mocks, fixtures |
+| `performance` | Caching, optimization, monitoring |
+| `security` | Security practices, vulnerabilities |
+
+### Dev Type Values
+
+| Type | Description | PP Dimension |
+|------|-------------|--------------|
+| `pattern` | Reusable approach | beauty |
+| `recipe` | Step-by-step guide | beauty |
+| `gotcha` | Non-obvious pitfall | truth |
+| `error_fix` | Error solution | truth |
+| `config` | Configuration tips | justice |
+| `migration` | Version upgrade steps | creativity |
+
+### CLI Commands
+
+```bash
+gua dev add <platform> <domain> <type> "<title>" [--code "..." --tags "..." --error "..."]
+gua dev list [platform] [domain]
+gua dev search "<query>" [--platform P] [--domain D]
+gua dev show <id>
+gua dev context <platform> [domain]
+gua dev promote <challenge_id> --platform P --domain D
+```
+
+### Dev Knowledge → Challenge Integration
+
+Challenges can be promoted to dev knowledge:
+1. Resolve challenge with learning
+2. Use `gua dev promote <challenge_id> --platform P --domain D`
+3. Challenge becomes queryable dev knowledge
+4. Cross-platform patterns emerge from repeated challenges
 
 ---
 
@@ -487,6 +575,38 @@ gua progress snapshot [project]     # Create daily snapshot
 | ugly_hack | beauty |
 | wrong_place | justice |
 | dead_end | creativity |
+
+| Dev Platform | Description |
+|--------------|-------------|
+| shopify | Shopify APIs, Polaris, Hydrogen |
+| sentry | Sentry error tracking |
+| prisma | Prisma ORM, migrations |
+| aws | AWS services |
+| vercel | Vercel deployment |
+| nextjs | Next.js App Router |
+| react | React patterns |
+| typescript | TypeScript patterns |
+| general | Cross-platform |
+
+| Dev Domain | Description |
+|------------|-------------|
+| auth | Authentication |
+| data | Data modeling |
+| api | API design |
+| ui | UI components |
+| deployment | CI/CD |
+| testing | Testing patterns |
+| performance | Optimization |
+| security | Security practices |
+
+| Dev Type | PP Dimension |
+|----------|--------------|
+| pattern | beauty |
+| recipe | beauty |
+| gotcha | truth |
+| error_fix | truth |
+| config | justice |
+| migration | creativity |
 
 | Depth | Content | Location |
 |-------|---------|----------|
