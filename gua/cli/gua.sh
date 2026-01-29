@@ -57,6 +57,32 @@ is_v2() {
 }
 
 # ============================================================
+# SYNC-MODULES - Download GUA modules from S3
+# ============================================================
+cmd_sync_modules() {
+    load_config
+
+    echo -e "${BLUE}[GUA] Syncing modules from AWS...${NC}"
+
+    # Download seer module
+    echo "  Downloading seer.sh..."
+    aws s3 cp "s3://$S3_BUCKET/modules/seer.sh" "$GUA_DIR/seer.sh" --region "$REGION" 2>/dev/null && \
+        chmod +x "$GUA_DIR/seer.sh" && \
+        echo -e "    ${GREEN}✓ seer.sh${NC}" || \
+        echo -e "    ${YELLOW}(not found or failed)${NC}"
+
+    # List available modules
+    echo ""
+    echo "  Available modules in S3:"
+    aws s3 ls "s3://$S3_BUCKET/modules/" --region "$REGION" 2>/dev/null | while read line; do
+        echo "    $line"
+    done
+
+    echo ""
+    echo -e "${GREEN}[GUA] Module sync complete${NC}"
+}
+
+# ============================================================
 # LOAD - Download understanding from AWS
 # ============================================================
 cmd_load() {
@@ -171,8 +197,11 @@ cmd_load_active_set() {
 
 EOF
 
-    # Add blindspots
-    echo "$blindspots" | jq -r '.[] | "### \(.name.S)\n- **Dimension**: \(.pp_dimension.S)\n- **Summary**: \(.summary.S // "No summary")\n"' >> "$LOCAL_INTEGRATION/LIGHT.md" 2>/dev/null || true
+    # Add blindspots - filter nulls
+    echo "$blindspots" | jq -r '
+        .[] | select(.name.S != null and .name.S != "" and .name.S != "null")
+        | "### \(.name.S | .[0:50])\n- **Dimension**: \(.pp_dimension.S)\n- \(.summary.S // "Watch for this" | .[0:150])\n"
+    ' >> "$LOCAL_INTEGRATION/LIGHT.md" 2>/dev/null || true
 
     cat >> "$LOCAL_INTEGRATION/LIGHT.md" << EOF
 
@@ -182,18 +211,17 @@ EOF
 
 EOF
 
-    # Add patterns
-    echo "$patterns" | jq -r '.[] | "### \(.name.S)\n- **Dimension**: \(.pp_dimension.S)\n- **Access Count**: \(.access_count.N // "0")\n- **Summary**: \(.summary.S // "No summary")\n"' >> "$LOCAL_INTEGRATION/LIGHT.md" 2>/dev/null || true
+    # Add patterns - filter nulls, truncate
+    echo "$patterns" | jq -r '
+        .[] | select(.name.S != null and .name.S != "" and .name.S != "null")
+        | "### \(.name.S | .[0:50])\n- **Dimension**: \(.pp_dimension.S)\n- **Access**: \(.access_count.N // "0")x\n- \(.summary.S // "No summary" | .[0:150])\n"
+    ' >> "$LOCAL_INTEGRATION/LIGHT.md" 2>/dev/null || true
 
     cat >> "$LOCAL_INTEGRATION/LIGHT.md" << EOF
 
 ---
 
-## Quick Commands
-
-- \`/gua-context dimension:X\` - Load all patterns for dimension
-- \`/gua-context search:query\` - Search all knowledge
-- \`gua fetch <id>\` - Load specific pattern details
+*GUA v2 | \`gua context\` for quick summary | \`gua search <query>\` to find specific patterns*
 
 EOF
 
@@ -1293,81 +1321,222 @@ cmd_generate_light() {
     local emerging_count=$(echo "$emerging" | jq '.Count // 0')
     local blindspot_count=$(echo "$blindspots" | jq '.Count // 0')
 
-    # Generate LIGHT.md
-    cat > "$LOCAL_INTEGRATION/LIGHT.md" << EOF
-# LIGHT - Current Understanding
+    # Generate LIGHT.md with improved formatting
+    cat > "$LOCAL_INTEGRATION/LIGHT.md" << 'EOF'
+# LIGHT - Accumulated Understanding
 
-> **Last synthesized**: $(date -u +"%Y-%m-%d")
-> **Total patterns**: $((confirmed_count + emerging_count))
-> **Active blindspots**: $blindspot_count
-> **Architecture**: v2 (Indexed Active Set)
-
----
-
-## Active Blindspots
+> This file is auto-injected into Claude Code sessions via GUA.
+> It contains patterns and blindspots accumulated across sessions.
 
 EOF
 
-    # Add blindspots grouped by dimension
-    for dim in truth understanding beauty justice creativity; do
-        local dim_blindspots=$(echo "$blindspots" | jq -r ".Items[] | select(.pp_dimension.S == \"$dim\")")
-        if [[ -n "$dim_blindspots" ]]; then
-            echo "### $dim" >> "$LOCAL_INTEGRATION/LIGHT.md"
-            echo "$blindspots" | jq -r ".Items[] | select(.pp_dimension.S == \"$dim\") | \"- **\(.name.S)**: \(.summary.S // \"No summary\")\"" >> "$LOCAL_INTEGRATION/LIGHT.md"
-            echo "" >> "$LOCAL_INTEGRATION/LIGHT.md"
-        fi
-    done
+    cat >> "$LOCAL_INTEGRATION/LIGHT.md" << EOF
+**Last synthesized**: $(date -u +"%Y-%m-%d %H:%M UTC")
+**Patterns**: $((confirmed_count + emerging_count)) | **Blindspots**: $blindspot_count
+
+---
+
+## BLINDSPOTS (Check Before Every Task)
+
+EOF
+
+    # Add blindspots - filter out null/empty names, truncate long names
+    echo "$blindspots" | jq -r '
+        .Items[]
+        | select(.name.S != null and .name.S != "" and .name.S != "null")
+        | "**\(.name.S | .[0:60])**\n> \(.summary.S // "Watch for this pattern" | .[0:150])\n"
+    ' >> "$LOCAL_INTEGRATION/LIGHT.md" 2>/dev/null || true
+
+    cat >> "$LOCAL_INTEGRATION/LIGHT.md" << 'EOF'
+
+---
+
+## TOP PATTERNS (Most Accessed)
+
+EOF
+
+    # Add confirmed patterns - filter nulls, truncate, limit to top 15
+    echo "$confirmed" | jq -r '
+        [.Items[]
+        | select(.name.S != null and .name.S != "" and .name.S != "null")
+        | {name: .name.S, dim: .pp_dimension.S, type: .knowledge_type.S, summary: .summary.S, access: (.access_count.N // "0" | tonumber)}]
+        | sort_by(-.access)
+        | .[0:15]
+        | .[]
+        | "### \(.name | .[0:50])\n- **[\(.dim | ascii_upcase)]** \(.type) | accessed \(.access)x\n- \(.summary // "No summary" | .[0:200])\n"
+    ' >> "$LOCAL_INTEGRATION/LIGHT.md" 2>/dev/null || true
+
+    cat >> "$LOCAL_INTEGRATION/LIGHT.md" << 'EOF'
+
+---
+
+## EMERGING (Needs Validation)
+
+EOF
+
+    # Add emerging patterns - limit to 10
+    echo "$emerging" | jq -r '
+        [.Items[]
+        | select(.name.S != null and .name.S != "" and .name.S != "null")]
+        | .[0:10]
+        | .[]
+        | "- **\(.name.S | .[0:50])** [\(.pp_dimension.S)]: \(.summary.S // "Needs summary" | .[0:100])"
+    ' >> "$LOCAL_INTEGRATION/LIGHT.md" 2>/dev/null || true
 
     cat >> "$LOCAL_INTEGRATION/LIGHT.md" << EOF
 
 ---
 
-## Confirmed Patterns (HIGH confidence)
-
-EOF
-
-    # Add confirmed patterns grouped by dimension
-    for dim in truth understanding beauty justice creativity; do
-        local dim_patterns=$(echo "$confirmed" | jq -r ".Items[] | select(.pp_dimension.S == \"$dim\")")
-        if [[ -n "$dim_patterns" && $(echo "$confirmed" | jq "[.Items[] | select(.pp_dimension.S == \"$dim\")] | length") != "0" ]]; then
-            echo "### $dim" >> "$LOCAL_INTEGRATION/LIGHT.md"
-            echo "$confirmed" | jq -r ".Items[] | select(.pp_dimension.S == \"$dim\") | \"#### \(.name.S)\n- **Type**: \(.knowledge_type.S)\n- **Summary**: \(.summary.S // \"No summary\")\n- **Access**: \(.access_count.N // \"0\") times\n\"" >> "$LOCAL_INTEGRATION/LIGHT.md"
-        fi
-    done
-
-    cat >> "$LOCAL_INTEGRATION/LIGHT.md" << EOF
-
----
-
-## Emerging Patterns (MEDIUM confidence)
-
-EOF
-
-    # Add emerging patterns
-    echo "$emerging" | jq -r '.Items[] | "### \(.name.S)\n- **Dimension**: \(.pp_dimension.S)\n- **Type**: \(.knowledge_type.S)\n- **Summary**: \(.summary.S // "No summary")\n"' >> "$LOCAL_INTEGRATION/LIGHT.md"
-
-    cat >> "$LOCAL_INTEGRATION/LIGHT.md" << EOF
-
----
-
-## Quick Reference
-
-| Stat | Count |
-|------|-------|
-| Confirmed patterns | $confirmed_count |
-| Emerging patterns | $emerging_count |
-| Active blindspots | $blindspot_count |
-| Total indexed | $((confirmed_count + emerging_count + blindspot_count)) |
-
----
-
-*Generated by GUA v2. Use \`gua search <query>\` to find specific patterns.*
+*GUA v2 | $((confirmed_count + emerging_count + blindspot_count)) items indexed | \`gua search <query>\` to find more*
 EOF
 
     # Upload to S3
     aws s3 cp "$LOCAL_INTEGRATION/LIGHT.md" "s3://$S3_BUCKET/documents/LIGHT.md" --region "$REGION"
 
+    # Also generate condensed CONTEXT.md for auto-injection
+    cmd_generate_context
+
     echo -e "${GREEN}[GUA] LIGHT.md regenerated ($confirmed_count confirmed, $emerging_count emerging, $blindspot_count blindspots)${NC}"
+}
+
+# ============================================================
+# GENERATE-CONTEXT - Create condensed context for auto-injection
+# ============================================================
+cmd_generate_context() {
+    load_config
+
+    local LOCAL_INTEGRATION="$HOME/.claude/purpose_prompter/integration"
+    local CONTEXT_FILE="$LOCAL_INTEGRATION/CONTEXT.md"
+    mkdir -p "$LOCAL_INTEGRATION"
+
+    # Get top blindspots (max 3)
+    local blindspots=$(aws dynamodb scan \
+        --table-name "gua-knowledge-index" \
+        --filter-expression "user_id = :uid AND knowledge_type = :kt AND is_active = :active" \
+        --expression-attribute-values "{\":uid\": {\"S\": \"$USER_ID\"}, \":kt\": {\"S\": \"blindspot\"}, \":active\": {\"BOOL\": true}}" \
+        --region "$REGION" 2>/dev/null)
+
+    # Get top 5 most accessed patterns (only pattern, technique, anti-pattern, blindspot types)
+    local patterns=$(aws dynamodb query \
+        --table-name "gua-knowledge-index" \
+        --index-name "access-score-index" \
+        --key-condition-expression "user_id = :uid" \
+        --filter-expression "knowledge_type IN (:t1, :t2, :t3, :t4)" \
+        --expression-attribute-values "{\":uid\": {\"S\": \"$USER_ID\"}, \":t1\": {\"S\": \"pattern\"}, \":t2\": {\"S\": \"technique\"}, \":t3\": {\"S\": \"anti-pattern\"}, \":t4\": {\"S\": \"model\"}}" \
+        --no-scan-index-forward \
+        --limit 15 \
+        --region "$REGION" 2>/dev/null)
+
+    # Get recent challenges (open)
+    local challenges=$(aws dynamodb scan \
+        --table-name "gua-knowledge-index" \
+        --filter-expression "user_id = :uid AND knowledge_type = :kt AND #st = :status" \
+        --expression-attribute-names '{"#st": "status"}' \
+        --expression-attribute-values "{\":uid\": {\"S\": \"$USER_ID\"}, \":kt\": {\"S\": \"challenge\"}, \":status\": {\"S\": \"active\"}}" \
+        --limit 3 \
+        --region "$REGION" 2>/dev/null)
+
+    # Generate condensed CONTEXT.md
+    cat > "$CONTEXT_FILE" << 'EOF'
+# GUA Session Context
+
+> Auto-loaded accumulated knowledge. Review before starting work.
+
+## Active Blindspots
+EOF
+
+    echo "$blindspots" | jq -r '
+        [.Items[] | select(.name.S != null and .name.S != "null")] | .[0:3] | .[]
+        | "- **\(.name.S | .[0:40])**: \(.summary.S // "Be careful here" | .[0:80])"
+    ' >> "$CONTEXT_FILE" 2>/dev/null || echo "- None active" >> "$CONTEXT_FILE"
+
+    cat >> "$CONTEXT_FILE" << 'EOF'
+
+## Key Patterns
+EOF
+
+    echo "$patterns" | jq -r '
+        [.Items[] | select(.name.S != null and .name.S != "null" and (.name.S | length) < 50)] | .[0:5] | .[]
+        | "- **\(.name.S)** [\(.pp_dimension.S // "general")]: \(.summary.S // "" | .[0:70])"
+    ' >> "$CONTEXT_FILE" 2>/dev/null || echo "- None captured yet" >> "$CONTEXT_FILE"
+
+    local challenge_count=$(echo "$challenges" | jq '.Count // 0')
+    if [[ "$challenge_count" -gt 0 ]]; then
+        cat >> "$CONTEXT_FILE" << 'EOF'
+
+## Open Challenges
+EOF
+        echo "$challenges" | jq -r '
+            .Items[] | "- \(.description.S // .name.S | .[0:60])"
+        ' >> "$CONTEXT_FILE" 2>/dev/null
+    fi
+
+    cat >> "$CONTEXT_FILE" << 'EOF'
+
+---
+*Run `gua context` for full context or `gua search <query>` to find specific knowledge*
+EOF
+
+    echo "  Generated CONTEXT.md for auto-injection"
+}
+
+# ============================================================
+# CONTEXT-QUICK - Display condensed context (for quick review)
+# ============================================================
+cmd_context_quick() {
+    local mode="${1:-quick}"
+
+    load_config
+
+    local LOCAL_INTEGRATION="$HOME/.claude/purpose_prompter/integration"
+    local CONTEXT_FILE="$LOCAL_INTEGRATION/CONTEXT.md"
+    local LIGHT_FILE="$LOCAL_INTEGRATION/LIGHT.md"
+
+    case "$mode" in
+        quick)
+            # Show condensed context
+            if [[ -f "$CONTEXT_FILE" ]]; then
+                cat "$CONTEXT_FILE"
+            else
+                echo -e "${YELLOW}[GUA] Context not generated yet. Generating...${NC}"
+                cmd_generate_context
+                cat "$CONTEXT_FILE"
+            fi
+            ;;
+        full)
+            # Show full LIGHT.md
+            if [[ -f "$LIGHT_FILE" ]]; then
+                cat "$LIGHT_FILE"
+            else
+                echo -e "${YELLOW}[GUA] LIGHT.md not found. Run: gua load${NC}"
+            fi
+            ;;
+        refresh)
+            # Regenerate and show
+            echo -e "${BLUE}[GUA] Refreshing context...${NC}"
+            cmd_generate_context
+            cat "$CONTEXT_FILE"
+            ;;
+        inject)
+            # Output format suitable for injection into CLAUDE.md or prompts
+            echo ""
+            echo "<!-- GUA AUTO-CONTEXT START -->"
+            if [[ -f "$CONTEXT_FILE" ]]; then
+                cat "$CONTEXT_FILE"
+            fi
+            echo "<!-- GUA AUTO-CONTEXT END -->"
+            echo ""
+            ;;
+        *)
+            echo "Usage: gua context [quick|full|refresh|inject]"
+            echo ""
+            echo "Modes:"
+            echo "  quick    Show condensed context (default)"
+            echo "  full     Show full LIGHT.md"
+            echo "  refresh  Regenerate and show context"
+            echo "  inject   Output in injection format"
+            ;;
+    esac
 }
 
 # ============================================================
@@ -4293,6 +4462,9 @@ case "${1:-}" in
     load)
         cmd_load
         ;;
+    sync-modules)
+        cmd_sync_modules
+        ;;
     save)
         cmd_save
         ;;
@@ -4362,6 +4534,19 @@ case "${1:-}" in
         ;;
     generate-light)
         cmd_generate_light
+        ;;
+    generate-context)
+        cmd_generate_context
+        ;;
+    context)
+        cmd_context_quick "$2"
+        ;;
+    # SEER - Web Scraping via Bright Data
+    seer)
+        load_config
+        source "$GUA_DIR/seer.sh"
+        shift
+        cmd_seer "$@"
         ;;
     # CPT - Code Progress Tracker commands
     area)
@@ -4683,6 +4868,7 @@ case "${1:-}" in
         echo "Core Commands:"
         echo "  load                    Download all understanding from AWS"
         echo "  save                    Upload all local changes to AWS"
+        echo "  sync-modules            Download GUA modules (seer, etc) from AWS"
         echo "  status                  Show GUA status"
         echo ""
         echo "Knowledge Capture:"
@@ -4711,6 +4897,19 @@ case "${1:-}" in
         echo "  index-add <name> <dim> [type] [summary] [s3_key]"
         echo "                          Add item to knowledge index"
         echo "  generate-light          Regenerate LIGHT.md from index"
+        echo "  generate-context        Generate condensed CONTEXT.md"
+        echo "  context [mode]          Show accumulated context"
+        echo "                          Modes: quick (default), full, refresh, inject"
+        echo ""
+        echo "Seer (Web Scraping via Bright Data):"
+        echo "  seer <url>              Fetch blocked URL content"
+        echo "  seer <url> --refresh    Force refresh (ignore cache)"
+        echo "  seer <url> --quiet      Fetch and cache without output"
+        echo "  seer --list-cache       List all cached URLs"
+        echo "  seer --cache-status <url> Show cache status"
+        echo "  seer --clear-cache <url>  Clear cache for URL"
+        echo "                          Requires: BRIGHT_DATA_CUSTOMER_ID,"
+        echo "                                    BRIGHT_DATA_PASSWORD env vars"
         echo ""
         echo "Session:"
         echo "  query [table] [limit]   Query recent entries (research, insights)"
