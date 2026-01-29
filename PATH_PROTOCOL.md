@@ -293,6 +293,9 @@ gua insight "Assessment W[i]: [X/Y tests pass, +N from last]" observation "e2e a
 ```
 
 #### RESEARCH (Light Ahead)
+
+**Shine light ahead** to reveal what you need to know before building.
+
 ```bash
 # Document findings
 gua research "[topic]" "[finding]" [source] [confidence]
@@ -302,8 +305,30 @@ gua research "shopify-auth" "OAuth flow requires redirect URI" "docs.shopify.com
 gua research "playwright-wait" "Use waitForLoadState not waitForTimeout" "playwright.dev" high
 ```
 
+**Blocked Documentation Protocol (Seer)**:
+
+When documentation is blocked by anti-bot protections (Cloudflare, etc.):
+
+```bash
+# Check what's already cached from previous sessions
+gua seer --list-cache
+
+# Fetch blocked documentation via Bright Data proxy
+gua seer "https://blocked-docs.example.com/api"
+
+# Force refresh if docs may have changed
+gua seer "<url>" --refresh
+```
+
+**Cache TTLs**:
+- Documentation: 24 hours
+- GitHub: 1 hour (changes more frequently)
+- NPM: 6 hours
+
+**Cost**: ~$0.003 per Bright Data request. Cached content is free.
+
 **Research Checklist**:
-- [ ] API documentation reviewed
+- [ ] API documentation reviewed (use Seer if blocked)
 - [ ] Similar implementations found
 - [ ] Constraints identified
 - [ ] Dependencies mapped

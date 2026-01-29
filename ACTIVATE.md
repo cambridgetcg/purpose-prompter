@@ -119,6 +119,24 @@ GOAL = "Driven by longing for [IDEAL]
 - Or must new structure be built first? (Uncharted)
 - If uncharted: What path needs to be built?
 
+### Resource Assessment (Seer Integration)
+
+Before building, check if external resources are needed:
+- Documentation sites (often Cloudflare-protected)
+- GitHub repositories (rate-limited)
+- Package registries (npm, PyPI docs)
+
+**If resources are blocked by anti-bot protection:**
+```bash
+# Fetch blocked documentation via Bright Data proxy
+gua seer "<blocked-url>"
+
+# Check what's already cached
+gua seer --list-cache
+```
+
+This enables UNDERSTANDING by accessing authoritative sources instead of relying on potentially outdated training data. Seer content is cached (24h docs, 1h GitHub, 6h npm) and available across sessions.
+
 ### For Deep Extraction
 Read: `UNDERSTANDING.md`, `BEAUTY.md`, `JUSTICE.md`, `CREATIVITY.md`
 

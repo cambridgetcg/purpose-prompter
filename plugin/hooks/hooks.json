@@ -11,6 +11,18 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "WebFetch",
+        "condition": "result contains 'blocked' or 'Cloudflare' or 'Access Denied' or status >= 400",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "Seer Suggestion: WebFetch may have been blocked by anti-bot protection. If you need this content, try: gua seer \"<url>\" to fetch via Bright Data proxy."
+          }
+        ]
+      }
     ]
   }
 }

@@ -70,6 +70,19 @@ Assess whether territory is charted or uncharted.
 
 Determines if existing patterns suffice (charted) or new structure needed first (uncharted).
 
+### `/seer <url> [--refresh]`
+Fetch blocked documentation via Bright Data proxy.
+
+```
+/seer https://developers.cloudflare.com/workers/
+/seer https://docs.stripe.com/api/charges --refresh
+/seer --list-cache
+```
+
+Use when WebFetch fails due to Cloudflare or anti-bot protection. Serves the **UNDERSTANDING** dimension by accessing authoritative sources.
+
+**Cache TTLs**: 24h docs, 1h GitHub, 6h npm. Cost: ~$0.003/request (cached is free).
+
 ---
 
 ## Skills
@@ -83,6 +96,11 @@ Automatically applies the hierarchy when designing, implementing, or refactoring
 Automatically detects ugliness, injustice, and stagnation while reading code.
 
 **Triggers**: Reading code, reviewing PRs, debugging, when code "feels off"
+
+### seer
+Automatically suggests Seer when documentation is blocked.
+
+**Triggers**: WebFetch returns 403/503, Cloudflare challenge, user mentions blocked docs
 
 ---
 
