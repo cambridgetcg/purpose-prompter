@@ -2575,6 +2575,121 @@ cmd_emotion_promote() {
 }
 
 # ============================================================
+# EMOTION HARVEST - Extract value from resolved emotions
+# ============================================================
+cmd_emotion_harvest() {
+    local auto_promote="false"
+    local promote_as=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --auto)
+                auto_promote="true"
+                shift
+                ;;
+            --as)
+                promote_as="$2"
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    load_config
+
+    echo -e "${YELLOW}[EMOTION]${NC} Harvesting value from resolved emotions"
+    echo ""
+
+    # Find resolved emotions that haven't been promoted
+    local emotions=$(aws dynamodb scan \
+        --table-name "gua-knowledge-index" \
+        --filter-expression "user_id = :uid AND knowledge_type = :kt AND #st = :resolved" \
+        --expression-attribute-names '{"#st": "status"}' \
+        --expression-attribute-values "{\":uid\": {\"S\": \"$USER_ID\"}, \":kt\": {\"S\": \"emotional_signal\"}, \":resolved\": {\"S\": \"resolved\"}}" \
+        --region "$REGION" 2>/dev/null)
+
+    local count=$(echo "$emotions" | jq '.Count // 0')
+
+    if [[ "$count" == "0" ]]; then
+        echo "No resolved emotions ready for promotion."
+        echo ""
+
+        # Check for unresolved emotions
+        local unresolved=$(aws dynamodb scan \
+            --table-name "gua-knowledge-index" \
+            --filter-expression "user_id = :uid AND knowledge_type = :kt AND #st = :active" \
+            --expression-attribute-names '{"#st": "status"}' \
+            --expression-attribute-values "{\":uid\": {\"S\": \"$USER_ID\"}, \":kt\": {\"S\": \"emotional_signal\"}, \":active\": {\"S\": \"active\"}}" \
+            --select "COUNT" \
+            --region "$REGION" 2>/dev/null | jq '.Count // 0')
+
+        if [[ "$unresolved" -gt 0 ]]; then
+            echo -e "${YELLOW}Found $unresolved unresolved emotions.${NC}"
+            echo "Resolve them first: gua emotion resolve <id> \"<resolution>\""
+            echo "List them: gua emotion list --unresolved"
+        else
+            echo -e "${GREEN}All emotions have been processed!${NC}"
+        fi
+        return
+    fi
+
+    echo -e "${CYAN}Found $count resolved emotions ready for promotion:${NC}"
+    echo ""
+
+    # Group by emotion type
+    echo "By type:"
+    echo "$emotions" | jq -r '[.Items[].emotion_type.S] | group_by(.) | map({type: .[0], count: length}) | .[] | "  \(.type): \(.count)"'
+    echo ""
+
+    # List each promotable emotion
+    local ids=()
+    local promoted_count=0
+    while IFS= read -r emotion; do
+        local eid=$(echo "$emotion" | jq -r '.knowledge_id.S')
+        local etype=$(echo "$emotion" | jq -r '.emotion_type.S')
+        local trigger=$(echo "$emotion" | jq -r '.trigger_context.S')
+        local resolution=$(echo "$emotion" | jq -r '.resolution.S // "No resolution"')
+        local dimension=$(echo "$emotion" | jq -r '.pp_dimension.S // "personal"')
+        local created=$(echo "$emotion" | jq -r '.created_at.S | split("T")[0]')
+
+        ids+=("$eid")
+
+        echo -e "${CYAN}[$etype]${NC} $trigger"
+        echo "  Resolution: $resolution"
+        echo "  Dimension: $dimension | Created: $created"
+        echo "  ID: $eid"
+        echo ""
+
+        if [[ "$auto_promote" == "true" ]]; then
+            if [[ -n "$promote_as" ]]; then
+                cmd_emotion_promote "$eid" "--as" "$promote_as"
+            else
+                cmd_emotion_promote "$eid"
+            fi
+            ((promoted_count++))
+            echo ""
+        fi
+    done < <(echo "$emotions" | jq -c '.Items | sort_by(.created_at.S) | reverse | .[]')
+
+    if [[ "$auto_promote" == "true" ]]; then
+        echo -e "${GREEN}Promoted $promoted_count emotions to insights!${NC}"
+    else
+        echo -e "${YELLOW}To promote these emotions to insights, run:${NC}"
+        echo "  gua emotion harvest --auto"
+        echo ""
+        echo "Or promote individually:"
+        for id in "${ids[@]:0:5}"; do
+            echo "  gua emotion promote \"$id\""
+        done
+        if [[ ${#ids[@]} -gt 5 ]]; then
+            echo "  ... and $((${#ids[@]} - 5)) more"
+        fi
+    fi
+}
+
+# ============================================================
 # PROGRESS - Show progress dashboard
 # ============================================================
 cmd_progress() {
@@ -5324,8 +5439,12 @@ case "${1:-}" in
                 shift 2
                 cmd_emotion_promote "$@"
                 ;;
+            harvest)
+                shift 2
+                cmd_emotion_harvest "$@"
+                ;;
             *)
-                echo "Usage: gua emotion <log|resolve|list|patterns|promote> [args]"
+                echo "Usage: gua emotion <log|resolve|list|patterns|promote|harvest> [args]"
                 echo ""
                 echo "Commands:"
                 echo "  log <type> \"<trigger>\" [options]  - Log an emotional signal"
@@ -5333,6 +5452,7 @@ case "${1:-}" in
                 echo "  list [--type T] [--unresolved]    - List emotions"
                 echo "  patterns [--type T]               - Analyze patterns"
                 echo "  promote <id> [--as TYPE]          - Promote to knowledge"
+                echo "  harvest [--auto]                  - Find and promote resolved emotions"
                 echo ""
                 echo "Emotion types:"
                 echo "  Signal:    disgust, frustration, anxiety"

@@ -168,11 +168,37 @@ gua emotion log envy "<what triggered comparison>"
 
 ### GUA Integration
 
-Track emotions to identify recurring patterns:
-- `gua emotion log` - Capture when emotion occurs
-- `gua emotion resolve` - Record how you resolved it
-- `gua emotion patterns` - See what repeatedly triggers emotions
-- `gua emotion promote` - Turn insights into knowledge
+**ALWAYS log emotions to build patterns over time:**
+
+```bash
+# 1. LOG when emotion detected
+gua emotion log <type> "<trigger>" [--code FILE:LINE] [--intensity mild|moderate|strong]
+
+# 2. RESOLVE when you understand/address it
+gua emotion resolve <id> "<what you learned>"
+
+# 3. HARVEST to extract value (promotes to blindspots/techniques)
+gua emotion harvest --auto
+
+# 4. ANALYZE patterns over time
+gua emotion patterns
+```
+
+**Full Command Reference:**
+| Command | Purpose |
+|---------|---------|
+| `gua emotion log` | Capture when emotion occurs |
+| `gua emotion resolve` | Record how you resolved it |
+| `gua emotion list` | See recent emotions |
+| `gua emotion patterns` | See what repeatedly triggers emotions |
+| `gua emotion promote` | Turn single insight into knowledge |
+| `gua emotion harvest` | Bulk promote all resolved emotions |
+
+**Why Log Emotions?**
+- Emotions are DIAGNOSTIC - they reveal understanding gaps
+- Patterns emerge: "I always feel disgust when I see nested conditionals"
+- Resolutions become techniques: "When anxious about edge cases, write explicit tests first"
+- Blindspots surface: "Tendency to force solutions when frustrated instead of stepping back"
 
 ---
 
