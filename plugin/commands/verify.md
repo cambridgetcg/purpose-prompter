@@ -135,6 +135,46 @@ During verification, watch for these signals:
 
 ---
 
+## Emotional Integrity Check
+
+Verify emotional ground alongside technical gates:
+
+```markdown
+### Emotional Integrity: [PASS/WARN/BLOCKED]
+
+**Motor Status** (E1-E4):
+- Longing: [Present/Weak/Absent] - Is there felt pull toward better?
+- Love: [Present/Weak/Absent] - Is there care for this work?
+- Hope: [Present/Weak/Absent] - Is improvement believed possible?
+- Wonder: [Present/Weak/Absent] - Has ideal been glimpsed?
+
+**Signal Status** (E5-E7):
+- Disgust: [None / Present → understand problem deeper]
+- Frustration: [None / Present → may need creativity]
+- Anxiety: [None / Present → check truth foundations]
+
+**Pathology Status** (E8-E11):
+- Despair: [Clear/Present] | Shame: [Clear/Present]
+- Pride: [Clear/Present] | Envy: [Clear/Present]
+
+**Emotional Ground**: [Clear / Signals Present / Blocked]
+```
+
+### Emotional-Signal Mapping
+
+| Emotion | Maps To | Indicates |
+|---------|---------|-----------|
+| Disgust (E5) | UGLINESS | Problem understanding incomplete |
+| Frustration (E6) | STAGNATION | Need for creativity |
+| Anxiety (E7) | Truth gap | Foundation incomplete |
+
+If any pathology (E8-E11) detected: Work may be compromised. Address emotional state.
+
+> **Full assessment**: `/emotion-check`
+> **Gate definitions**: `EMOTION_GATES.md`
+
+---
+
 ## Claude-Specific Enhancement Gates (MANDATORY)
 
 These gates compensate for Claude's known limitations. Always check these.

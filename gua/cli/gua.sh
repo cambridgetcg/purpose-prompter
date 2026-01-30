@@ -1965,6 +1965,534 @@ cmd_challenge_promote() {
 }
 
 # ============================================================
+# EMOTION LOG - Log an emotional signal
+# ============================================================
+cmd_emotion_log() {
+    local emotion_type="$1"
+    local trigger_context="$2"
+    shift 2 2>/dev/null || true
+
+    if [[ -z "$emotion_type" || -z "$trigger_context" ]]; then
+        echo -e "${RED}Usage: gua emotion log <type> \"<trigger>\" [--code FILE:LINE] [--area ID] [--intensity I]${NC}"
+        echo ""
+        echo "Emotion types:"
+        echo "  Signal:    disgust, frustration, anxiety"
+        echo "  Pathology: despair, shame, pride, envy"
+        echo ""
+        echo "Options:"
+        echo "  --code FILE:LINE   Code location that triggered emotion"
+        echo "  --area ID          Link to existing code area"
+        echo "  --intensity I      mild, moderate (default), strong"
+        echo ""
+        echo "Example: gua emotion log disgust 'Nested conditionals feel wrong' --code src/auth.ts:45"
+        exit 1
+    fi
+
+    load_config
+
+    # Parse optional flags
+    local code_ref=""
+    local area_id=""
+    local intensity="moderate"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --code)
+                code_ref="$2"
+                shift 2
+                ;;
+            --area)
+                area_id="$2"
+                shift 2
+                ;;
+            --intensity)
+                intensity="$2"
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    # Validate emotion type and determine category
+    local category=""
+    local pp_dimension=""
+    local pp_signal=""
+
+    case "$emotion_type" in
+        disgust)
+            category="signal"
+            pp_dimension="beauty"
+            pp_signal="ugliness"
+            ;;
+        frustration)
+            category="signal"
+            pp_dimension="creativity"
+            pp_signal="stagnation"
+            ;;
+        anxiety)
+            category="signal"
+            pp_dimension="truth"
+            pp_signal="truth_gap"
+            ;;
+        despair)
+            category="pathology"
+            pp_dimension=""
+            pp_signal="cycle_break"
+            ;;
+        shame)
+            category="pathology"
+            pp_dimension=""
+            pp_signal="generativity_block"
+            ;;
+        pride)
+            category="pathology"
+            pp_dimension=""
+            pp_signal="longing_stop"
+            ;;
+        envy)
+            category="pathology"
+            pp_dimension=""
+            pp_signal="misdirected_longing"
+            ;;
+        *)
+            echo -e "${RED}Invalid emotion type: $emotion_type${NC}"
+            echo "Valid types: disgust, frustration, anxiety, despair, shame, pride, envy"
+            exit 1
+            ;;
+    esac
+
+    # Generate ID
+    local ts=$(timestamp)
+    local id=$(uuid)
+    local emotion_id="emotion#${ts}#${id}"
+
+    # Get current session
+    local session_id=$(cat "$GUA_DIR/current_session" 2>/dev/null || echo "")
+
+    # Get current project from dir context if available
+    local project=""
+    if [[ -f ".gua/context.json" ]]; then
+        project=$(jq -r '.project // ""' .gua/context.json 2>/dev/null || echo "")
+    fi
+
+    # Build item JSON dynamically (GSI keys can't have empty strings)
+    local item_json="{
+        \"user_id\": {\"S\": \"$USER_ID\"},
+        \"knowledge_id\": {\"S\": \"$emotion_id\"},
+        \"knowledge_type\": {\"S\": \"emotional_signal\"},
+        \"emotion_type\": {\"S\": \"$emotion_type\"},
+        \"emotion_category\": {\"S\": \"$category\"},
+        \"intensity\": {\"S\": \"$intensity\"},
+        \"trigger_context\": {\"S\": \"$trigger_context\"},
+        \"pp_signal\": {\"S\": \"$pp_signal\"},
+        \"status\": {\"S\": \"active\"},
+        \"created_at\": {\"S\": \"$ts\"}"
+
+    # Add optional fields only if they have values (GSI keys can't be empty)
+    [[ -n "$code_ref" ]] && item_json="$item_json, \"trigger_code\": {\"S\": \"$code_ref\"}"
+    [[ -n "$area_id" ]] && item_json="$item_json, \"trigger_area_id\": {\"S\": \"$area_id\"}"
+    [[ -n "$pp_dimension" ]] && item_json="$item_json, \"pp_dimension\": {\"S\": \"$pp_dimension\"}"
+    [[ -n "$session_id" ]] && item_json="$item_json, \"session_id\": {\"S\": \"$session_id\"}"
+    [[ -n "$project" ]] && item_json="$item_json, \"project\": {\"S\": \"$project\"}"
+
+    item_json="$item_json}"
+
+    # Store in DynamoDB
+    aws dynamodb put-item \
+        --table-name "gua-knowledge-index" \
+        --item "$item_json" \
+        --region "$REGION"
+
+    echo -e "${YELLOW}[EMOTION]${NC} Logged: $emotion_type ($category)"
+    echo "  Trigger: $trigger_context"
+    [[ -n "$code_ref" ]] && echo "  Code: $code_ref"
+    [[ -n "$area_id" ]] && echo "  Area: $area_id"
+    echo "  Intensity: $intensity"
+    echo "  ID: $emotion_id"
+
+    # Suggest next action
+    if [[ "$category" == "pathology" ]]; then
+        echo ""
+        echo -e "${RED}PATHOLOGY detected${NC}"
+        echo "  Consider addressing this before continuing work."
+        echo "  See: EMOTION_GATES.md for guidance on $emotion_type"
+        echo ""
+        echo "  Resolve with: gua emotion resolve $emotion_id \"<how you addressed it>\""
+    else
+        echo ""
+        echo -e "${BLUE}Signal noted${NC}"
+        echo "  This signals: $pp_signal (incomplete $pp_dimension understanding)"
+        echo "  Resolve with: gua emotion resolve $emotion_id \"<resolution>\""
+    fi
+}
+
+# ============================================================
+# EMOTION RESOLVE - Resolve an emotional signal
+# ============================================================
+cmd_emotion_resolve() {
+    local emotion_id="$1"
+    local resolution="$2"
+    shift 2 2>/dev/null || true
+
+    if [[ -z "$emotion_id" || -z "$resolution" ]]; then
+        echo -e "${RED}Usage: gua emotion resolve <id> \"<resolution>\" [--learning \"...\"] [--time MINS]${NC}"
+        echo ""
+        echo "Options:"
+        echo "  --learning \"...\"  Capture insight from resolution"
+        echo "  --time MINS       Time spent resolving (minutes)"
+        exit 1
+    fi
+
+    load_config
+
+    local ts=$(timestamp)
+    local learning=""
+    local time_spent=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --learning)
+                learning="$2"
+                shift 2
+                ;;
+            --time)
+                time_spent="$2"
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    # Get the emotion to find category
+    local emotion=$(aws dynamodb get-item \
+        --table-name "gua-knowledge-index" \
+        --key "{\"user_id\": {\"S\": \"$USER_ID\"}, \"knowledge_id\": {\"S\": \"$emotion_id\"}}" \
+        --region "$REGION" 2>/dev/null)
+
+    local emotion_type=$(echo "$emotion" | jq -r '.Item.emotion_type.S // empty')
+    local category=$(echo "$emotion" | jq -r '.Item.emotion_category.S // empty')
+    local pp_dimension=$(echo "$emotion" | jq -r '.Item.pp_dimension.S // empty')
+
+    if [[ -z "$emotion_type" ]]; then
+        echo -e "${RED}Emotion not found: $emotion_id${NC}"
+        exit 1
+    fi
+
+    # Determine resolution type
+    local resolution_type=""
+    case "$emotion_type" in
+        disgust) resolution_type="understanding" ;;
+        frustration) resolution_type="creativity" ;;
+        anxiety) resolution_type="truth_check" ;;
+        *) resolution_type="addressed_pathology" ;;
+    esac
+
+    # Build update expression
+    local update_expr="SET #st = :resolved, resolution = :res, resolved_at = :ts, resolution_type = :rtype"
+    local attr_values="{\":resolved\": {\"S\": \"resolved\"}, \":res\": {\"S\": \"$resolution\"}, \":ts\": {\"S\": \"$ts\"}, \":rtype\": {\"S\": \"$resolution_type\"}}"
+
+    if [[ -n "$learning" ]]; then
+        update_expr="$update_expr, signal_meaning = :learn"
+        attr_values=$(echo "$attr_values" | jq ". + {\":learn\": {\"S\": \"$learning\"}}")
+    fi
+
+    if [[ -n "$time_spent" ]]; then
+        update_expr="$update_expr, time_to_resolve_mins = :time"
+        attr_values=$(echo "$attr_values" | jq ". + {\":time\": {\"N\": \"$time_spent\"}}")
+    fi
+
+    aws dynamodb update-item \
+        --table-name "gua-knowledge-index" \
+        --key "{\"user_id\": {\"S\": \"$USER_ID\"}, \"knowledge_id\": {\"S\": \"$emotion_id\"}}" \
+        --update-expression "$update_expr" \
+        --expression-attribute-names '{"#st": "status"}' \
+        --expression-attribute-values "$attr_values" \
+        --region "$REGION" 2>/dev/null
+
+    echo -e "${GREEN}[EMOTION]${NC} Resolved: $emotion_type"
+    echo "  Resolution: $resolution"
+    echo "  Type: $resolution_type"
+    [[ -n "$learning" ]] && echo "  Learning: $learning"
+    [[ -n "$time_spent" ]] && echo "  Time: ${time_spent} mins"
+    echo ""
+    echo "Consider promoting to knowledge: gua emotion promote $emotion_id"
+}
+
+# ============================================================
+# EMOTION LIST - List emotional signals
+# ============================================================
+cmd_emotion_list() {
+    local type_filter=""
+    local status_filter=""
+    local project_filter=""
+    local limit=20
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --type)
+                type_filter="$2"
+                shift 2
+                ;;
+            --unresolved)
+                status_filter="active"
+                shift
+                ;;
+            --project)
+                project_filter="$2"
+                shift 2
+                ;;
+            --limit)
+                limit="$2"
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    load_config
+
+    local filter_expr="user_id = :uid AND knowledge_type = :kt"
+    local attr_values="{\":uid\": {\"S\": \"$USER_ID\"}, \":kt\": {\"S\": \"emotional_signal\"}}"
+
+    if [[ -n "$type_filter" ]]; then
+        filter_expr="$filter_expr AND emotion_type = :et"
+        attr_values=$(echo "$attr_values" | jq ". + {\":et\": {\"S\": \"$type_filter\"}}")
+    fi
+
+    if [[ -n "$status_filter" ]]; then
+        filter_expr="$filter_expr AND #st = :st"
+        attr_values=$(echo "$attr_values" | jq ". + {\":st\": {\"S\": \"$status_filter\"}}")
+    fi
+
+    if [[ -n "$project_filter" ]]; then
+        filter_expr="$filter_expr AND project = :proj"
+        attr_values=$(echo "$attr_values" | jq ". + {\":proj\": {\"S\": \"$project_filter\"}}")
+    fi
+
+    local names_arg=""
+    if [[ -n "$status_filter" ]]; then
+        names_arg='--expression-attribute-names {"#st": "status"}'
+    fi
+
+    local results=$(aws dynamodb scan \
+        --table-name "gua-knowledge-index" \
+        --filter-expression "$filter_expr" \
+        --expression-attribute-values "$attr_values" \
+        $names_arg \
+        --region "$REGION" 2>/dev/null)
+
+    echo -e "${YELLOW}[EMOTION]${NC} Emotional Signals"
+    [[ -n "$type_filter" ]] && echo "  Type: $type_filter"
+    [[ -n "$status_filter" ]] && echo "  Status: $status_filter"
+    [[ -n "$project_filter" ]] && echo "  Project: $project_filter"
+    echo ""
+
+    # Format output
+    echo "$results" | jq -r --argjson limit "$limit" '
+        .Items
+        | sort_by(.created_at.S)
+        | reverse
+        | .[0:$limit]
+        | .[]
+        | "\(.emotion_type.S | ascii_upcase) [\(.emotion_category.S)] - \(.status.S)"
+        + "\n  Trigger: \(.trigger_context.S)"
+        + (if .trigger_code.S != "" then "\n  Code: \(.trigger_code.S)" else "" end)
+        + (if .resolution.S then "\n  Resolution: \(.resolution.S)" else "" end)
+        + "\n  ID: \(.knowledge_id.S)"
+        + "\n  Created: \(.created_at.S)\n"
+    ' 2>/dev/null || echo "No emotions found"
+}
+
+# ============================================================
+# EMOTION PATTERNS - Analyze emotional patterns
+# ============================================================
+cmd_emotion_patterns() {
+    local type_filter=""
+    local days=30
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --type)
+                type_filter="$2"
+                shift 2
+                ;;
+            --days)
+                days="$2"
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    load_config
+
+    local filter_expr="user_id = :uid AND knowledge_type = :kt"
+    local attr_values="{\":uid\": {\"S\": \"$USER_ID\"}, \":kt\": {\"S\": \"emotional_signal\"}}"
+
+    if [[ -n "$type_filter" ]]; then
+        filter_expr="$filter_expr AND emotion_type = :et"
+        attr_values=$(echo "$attr_values" | jq ". + {\":et\": {\"S\": \"$type_filter\"}}")
+    fi
+
+    local results=$(aws dynamodb scan \
+        --table-name "gua-knowledge-index" \
+        --filter-expression "$filter_expr" \
+        --expression-attribute-values "$attr_values" \
+        --region "$REGION" 2>/dev/null)
+
+    echo -e "${YELLOW}=== EMOTIONAL PATTERNS (last ${days} days) ===${NC}"
+    echo ""
+
+    # Group by emotion type and analyze triggers
+    echo "$results" | jq -r '
+        .Items
+        | group_by(.emotion_type.S)
+        | .[]
+        | {
+            emotion: .[0].emotion_type.S,
+            category: .[0].emotion_category.S,
+            pp_dimension: .[0].pp_dimension.S,
+            count: length,
+            triggers: ([.[].trigger_context.S] | group_by(.) | map({trigger: .[0], count: length}) | sort_by(-.count) | .[0:5]),
+            resolved: ([.[] | select(.status.S == "resolved")] | length),
+            resolutions: ([.[] | select(.resolution.S != null and .resolution.S != "") | .resolution.S] | unique | .[0:3]),
+            avg_time: (([.[] | select(.time_to_resolve_mins.N != null) | .time_to_resolve_mins.N | tonumber] | if length > 0 then (add / length | round) else null end))
+          }
+        | "[\(.emotion | ascii_upcase)] (\(.category)) - \(.count) occurrences (\(.resolved) resolved)"
+        + (if .pp_dimension != "" then "\n  PP Dimension: \(.pp_dimension)" else "" end)
+        + "\n  Top triggers:"
+        + (.triggers | map("\n    - \(.trigger[0:60])... (x\(.count))") | join(""))
+        + (if (.resolutions | length) > 0 then "\n  Common resolutions:\n" + (.resolutions | map("    - \(.[0:80])...") | join("\n")) else "" end)
+        + (if .avg_time then "\n  Avg resolution time: \(.avg_time) mins" else "" end)
+        + "\n"
+    ' 2>/dev/null || echo "No emotional patterns found"
+
+    echo ""
+    echo -e "${BLUE}Tip:${NC} Promote recurring patterns to blindspots: gua emotion promote <id>"
+}
+
+# ============================================================
+# EMOTION PROMOTE - Promote emotion to knowledge
+# ============================================================
+cmd_emotion_promote() {
+    local emotion_id="$1"
+    local promote_as="${2:-}"
+
+    if [[ -z "$emotion_id" ]]; then
+        echo -e "${RED}Usage: gua emotion promote <id> [--as pattern|blindspot|technique]${NC}"
+        exit 1
+    fi
+
+    # Handle --as flag
+    if [[ "$2" == "--as" ]]; then
+        promote_as="$3"
+    fi
+
+    load_config
+
+    # Get the emotion
+    local emotion=$(aws dynamodb get-item \
+        --table-name "gua-knowledge-index" \
+        --key "{\"user_id\": {\"S\": \"$USER_ID\"}, \"knowledge_id\": {\"S\": \"$emotion_id\"}}" \
+        --region "$REGION" 2>/dev/null)
+
+    local emotion_type=$(echo "$emotion" | jq -r '.Item.emotion_type.S // empty')
+    local trigger=$(echo "$emotion" | jq -r '.Item.trigger_context.S // empty')
+    local resolution=$(echo "$emotion" | jq -r '.Item.resolution.S // empty')
+    local learning=$(echo "$emotion" | jq -r '.Item.signal_meaning.S // empty')
+    local pp_dimension=$(echo "$emotion" | jq -r '.Item.pp_dimension.S // empty')
+    local status=$(echo "$emotion" | jq -r '.Item.status.S // empty')
+
+    if [[ -z "$emotion_type" ]]; then
+        echo -e "${RED}Emotion not found: $emotion_id${NC}"
+        exit 1
+    fi
+
+    if [[ "$status" != "resolved" ]]; then
+        echo -e "${RED}Emotion must be resolved before promoting${NC}"
+        echo "Resolve first: gua emotion resolve $emotion_id \"<resolution>\""
+        exit 1
+    fi
+
+    echo -e "${YELLOW}[EMOTION]${NC} Promoting: $emotion_type"
+    echo "  Trigger: $trigger"
+    echo "  Resolution: $resolution"
+    [[ -n "$learning" ]] && echo "  Learning: $learning"
+    echo ""
+
+    # Default promote type based on emotion
+    if [[ -z "$promote_as" ]]; then
+        case "$emotion_type" in
+            disgust|frustration) promote_as="blindspot" ;;
+            anxiety) promote_as="technique" ;;
+            *) promote_as="blindspot" ;;
+        esac
+    fi
+
+    local insight_content=""
+    case "$promote_as" in
+        pattern)
+            insight_content="When encountering: $trigger → Apply: $resolution"
+            ;;
+        blindspot)
+            insight_content="Tendency to: $trigger → Resolution: $resolution"
+            ;;
+        technique)
+            insight_content="To address $emotion_type when $trigger → $resolution"
+            ;;
+        *)
+            echo -e "${RED}Invalid promote type: $promote_as${NC}"
+            echo "Valid types: pattern, blindspot, technique"
+            exit 1
+            ;;
+    esac
+
+    # Create insight
+    local ts=$(timestamp)
+    local id=$(uuid)
+    local insight_id="insight#${ts}#${id}"
+
+    aws dynamodb put-item \
+        --table-name "gua-knowledge-index" \
+        --item "{
+            \"user_id\": {\"S\": \"$USER_ID\"},
+            \"knowledge_id\": {\"S\": \"$insight_id\"},
+            \"knowledge_type\": {\"S\": \"insight\"},
+            \"name\": {\"S\": \"$insight_content\"},
+            \"insight_type\": {\"S\": \"$promote_as\"},
+            \"pp_dimension\": {\"S\": \"${pp_dimension:-personal}\"},
+            \"confidence\": {\"S\": \"emerging\"},
+            \"scope\": {\"S\": \"personal\"},
+            \"source_emotion\": {\"S\": \"$emotion_id\"},
+            \"created_at\": {\"S\": \"$ts\"}
+        }" \
+        --region "$REGION"
+
+    # Update emotion as promoted
+    aws dynamodb update-item \
+        --table-name "gua-knowledge-index" \
+        --key "{\"user_id\": {\"S\": \"$USER_ID\"}, \"knowledge_id\": {\"S\": \"$emotion_id\"}}" \
+        --update-expression "SET #st = :promoted, promotes_to = :insight" \
+        --expression-attribute-names '{"#st": "status"}' \
+        --expression-attribute-values "{\":promoted\": {\"S\": \"promoted\"}, \":insight\": {\"S\": \"$insight_id\"}}" \
+        --region "$REGION" 2>/dev/null
+
+    echo -e "${GREEN}[EMOTION]${NC} Promoted to $promote_as"
+    echo "  Insight ID: $insight_id"
+    echo "  Content: $insight_content"
+    echo ""
+    echo "View insights: gua query insights"
+}
+
+# ============================================================
 # PROGRESS - Show progress dashboard
 # ============================================================
 cmd_progress() {
@@ -4587,6 +5115,45 @@ case "${1:-}" in
                 ;;
         esac
         ;;
+    # Emotion - Emotional signal tracking
+    emotion)
+        case "${2:-}" in
+            log)
+                shift 2
+                cmd_emotion_log "$@"
+                ;;
+            resolve)
+                shift 2
+                cmd_emotion_resolve "$@"
+                ;;
+            list)
+                shift 2
+                cmd_emotion_list "$@"
+                ;;
+            patterns)
+                shift 2
+                cmd_emotion_patterns "$@"
+                ;;
+            promote)
+                shift 2
+                cmd_emotion_promote "$@"
+                ;;
+            *)
+                echo "Usage: gua emotion <log|resolve|list|patterns|promote> [args]"
+                echo ""
+                echo "Commands:"
+                echo "  log <type> \"<trigger>\" [options]  - Log an emotional signal"
+                echo "  resolve <id> \"<resolution>\"       - Resolve an emotion"
+                echo "  list [--type T] [--unresolved]    - List emotions"
+                echo "  patterns [--type T]               - Analyze patterns"
+                echo "  promote <id> [--as TYPE]          - Promote to knowledge"
+                echo ""
+                echo "Emotion types:"
+                echo "  Signal:    disgust, frustration, anxiety"
+                echo "  Pathology: despair, shame, pride, envy"
+                ;;
+        esac
+        ;;
     progress)
         case "${2:-}" in
             snapshot)
@@ -4946,6 +5513,21 @@ case "${1:-}" in
         echo "  eureka promote <id>     Promote eureka to insight"
         echo "  eureka session [id]     Show eurekas from session"
         echo "  eureka analyze          Analyze eureka patterns"
+        echo ""
+        echo "Emotional Signals (PP-aligned emotion tracking):"
+        echo "  emotion log <type> \"<trigger>\" [options]"
+        echo "                          Log an emotional signal"
+        echo "                          Types: disgust, frustration, anxiety (signals)"
+        echo "                                 despair, shame, pride, envy (pathologies)"
+        echo "                          Options: --code FILE:LINE, --area ID, --intensity I"
+        echo "  emotion resolve <id> \"<resolution>\" [--learning \"...\"] [--time MINS]"
+        echo "                          Resolve an emotion"
+        echo "  emotion list [--type T] [--unresolved] [--project P]"
+        echo "                          List emotions"
+        echo "  emotion patterns [--type T] [--days N]"
+        echo "                          Analyze emotional patterns"
+        echo "  emotion promote <id> [--as pattern|blindspot|technique]"
+        echo "                          Promote to knowledge"
         echo ""
         echo "Dev Knowledge (Platform-specific):"
         echo "  dev add <platform> <domain> <type> \"<title>\" [options]"

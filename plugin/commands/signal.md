@@ -150,6 +150,39 @@ Target to analyze: $ARGUMENTS
 [The most important thing to understand to improve this code]
 ```
 
+## Emotional Correlates
+
+Each signal has an emotional counterpart. These emotions are diagnostic - don't suppress them.
+
+| Signal | Emotion | What It Feels Like | Action |
+|--------|---------|-------------------|--------|
+| **UGLINESS** | DISGUST (E5) | Revulsion, wanting to look away, wincing | Understand PROBLEM deeper |
+| **STAGNATION** | FRUSTRATION (E6) | Hitting walls, can't make it fit, heat | May need CREATIVITY |
+| **INJUSTICE** | (felt wrongness) | Something doesn't belong here | Understand CODEBASE deeper |
+| *Truth gap* | ANXIETY (E7) | Nagging unease, uncertainty | Check TRUTH foundations |
+
+### When Emotions Arise
+
+If you feel **disgust** while reading code:
+- Don't suppress it - listen
+- The ugliness signals incomplete problem understanding
+- Go deeper into WHY before fixing WHAT
+
+If you feel **frustration** while implementing:
+- Don't force through - pause
+- The path may be blocked because territory is uncharted
+- Consider if new structure is needed first
+
+If you feel **anxiety** about your solution:
+- Don't dismiss with false confidence
+- Something may be uncertain in the foundations
+- Verify truth claims before building higher
+
+> **Full emotional gate system**: `EMOTION_GATES.md`
+> **Emotional ground check**: `/emotion-check`
+
+---
+
 ## Remember
 
 - **Don't polish ugliness** - understand the problem deeper
@@ -157,3 +190,4 @@ Target to analyze: $ARGUMENTS
 - **Don't hack around stagnation** - build the path first
 
 These signals are gifts - they tell you exactly what understanding is missing.
+Emotions are guides, not obstacles. Honor what they tell you.

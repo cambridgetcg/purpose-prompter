@@ -53,6 +53,7 @@ Every piece of knowledge in GUA exists in a 5-dimensional space:
 | `challenge` | Problem encountered (CPT) | PP dimension mapping |
 | `progress_snapshot` | Point-in-time state (CPT) | Daily progress capture |
 | `dev_knowledge` | Platform-specific dev knowledge | API patterns, gotchas, recipes |
+| `emotional_signal` | Emotion during development | Trigger tracking, pattern emergence |
 
 ### Dimension 5: Temporal Status
 
@@ -296,6 +297,133 @@ Challenges can be promoted to dev knowledge:
 
 ---
 
+## Emotional Signal Entity
+
+Emotional signals track emotions during development to identify triggers, find patterns, and link to deeper understanding over time.
+
+### Why Track Emotions?
+
+Emotions are diagnostic signals in the PP framework:
+- **Disgust** → identifies recurring ugliness patterns (Beauty incomplete)
+- **Frustration** → identifies recurring blockages (Creativity needed)
+- **Anxiety** → identifies recurring truth gaps (Truth incomplete)
+- **Pathologies** → identifies personal blockers to address
+
+Tracking creates a feedback loop where emotions become learnable knowledge.
+
+### Schema
+
+```json
+{
+  "knowledge_type": "emotional_signal",
+  "knowledge_id": "emotion#{timestamp}#{uuid}",
+  "user_id": "yu",
+
+  // Core emotion data
+  "emotion_type": "disgust|frustration|anxiety|despair|shame|pride|envy",
+  "emotion_category": "signal|pathology",
+  "intensity": "mild|moderate|strong",
+
+  // Trigger context
+  "trigger_context": "Reading auth validation code",
+  "trigger_code": "src/auth/validate.ts:45",
+  "trigger_area_id": "area#project#hash",
+
+  // PP mapping
+  "pp_dimension": "beauty",
+  "pp_signal": "ugliness",
+
+  // Resolution
+  "signal_meaning": "Nested conditionals hiding unclear requirements",
+  "resolution": "Understood that validation has 3 distinct cases, refactored to match",
+  "resolution_type": "understanding|creativity|truth_check|addressed_pathology",
+  "time_to_resolve_mins": 30,
+
+  // Promotion
+  "promotes_to": "pattern-abc|blindspot-xyz",
+  "status": "active|resolved|promoted",
+
+  // Metadata
+  "session_id": "session-xyz",
+  "project": "purpose_prompter",
+  "created_at": "2026-01-30T12:00:00Z",
+  "resolved_at": null
+}
+```
+
+### Emotion → PP Dimension Mapping
+
+| Emotion | Category | PP Dimension | Signal |
+|---------|----------|--------------|--------|
+| `disgust` | signal | beauty | ugliness |
+| `frustration` | signal | creativity | stagnation |
+| `anxiety` | signal | truth | truth_gap |
+| `despair` | pathology | - | cycle_break |
+| `shame` | pathology | - | generativity_block |
+| `pride` | pathology | - | longing_stop |
+| `envy` | pathology | - | misdirected_longing |
+
+### Resolution Types
+
+| Type | Meaning | When Used |
+|------|---------|-----------|
+| `understanding` | Understood problem deeper | Disgust resolved via comprehension |
+| `creativity` | Built new structure | Frustration resolved via new path |
+| `truth_check` | Verified/corrected truth | Anxiety resolved via verification |
+| `addressed_pathology` | Addressed emotional blocker | Pathology cleared |
+
+### CLI Commands
+
+```bash
+# Log an emotion
+gua emotion log <type> "<trigger>" [--code FILE:LINE] [--area ID] [--intensity mild|moderate|strong]
+
+# Resolve an emotion
+gua emotion resolve <id> "<resolution>" [--learning "<insight>"] [--time MINS]
+
+# List emotions
+gua emotion list [--type T] [--unresolved] [--project P]
+
+# Analyze patterns
+gua emotion patterns [--type T] [--days N]
+
+# Promote to knowledge
+gua emotion promote <id> [--as pattern|blindspot|technique]
+```
+
+### Pattern Emergence
+
+After tracking emotions over time, patterns emerge:
+
+```
+$ gua emotion patterns
+
+[DISGUST] - 12 occurrences (9 resolved)
+  Top triggers:
+    - Nested conditionals (x4)
+    - Functions > 100 lines (x3)
+    - Magic numbers (x2)
+  Common resolution: "Understand domain cases first"
+
+[FRUSTRATION] - 8 occurrences (5 resolved)
+  Top triggers:
+    - Can't fit into existing patterns (x3)
+    - Hitting architectural limits (x2)
+  Common resolution: "Built new abstraction layer"
+```
+
+These patterns can be promoted to blindspots or techniques in GUA.
+
+### Emotional Signal → GUA Integration
+
+Emotions can be **promoted** to GUA insights when patterns emerge:
+1. Resolve emotion with valuable learning
+2. Use `gua emotion promote <id>`
+3. Learning becomes a pattern/blindspot in GUA
+4. Personal patterns emerge from repeated emotional signals
+
+---
+
 ## File Structure
 
 ```
@@ -503,6 +631,15 @@ gua progress [project]              # Show progress dashboard
 gua progress snapshot [project]     # Create daily snapshot
 ```
 
+### Emotion Commands
+```
+gua emotion log <type> "<trigger>" [--code FILE:LINE] [--area ID] [--intensity I]
+gua emotion resolve <id> "<resolution>" [--learning "..."] [--time MINS]
+gua emotion list [--type T] [--unresolved] [--project P]
+gua emotion patterns [--type T] [--days N]
+gua emotion promote <id> [--as pattern|blindspot|technique]
+```
+
 ### Plugin Commands
 ```
 /cpt-area <add|status|update|understand>
@@ -559,6 +696,7 @@ gua progress snapshot [project]     # Create daily snapshot
 | Scope | global, domain, project, personal |
 | Type | pattern, anti-pattern, blindspot, technique, principle, model |
 | CPT Types | code_area, challenge, progress_snapshot |
+| Emotion Types | emotional_signal (disgust, frustration, anxiety, despair, shame, pride, envy) |
 | Temporal | timeless, current, evolving, historical |
 
 | CPT Granularity | Use When |

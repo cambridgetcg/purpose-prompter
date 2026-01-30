@@ -70,6 +70,21 @@ Assess whether territory is charted or uncharted.
 
 Determines if existing patterns suffice (charted) or new structure needed first (uncharted).
 
+### `/emotion-check [context]`
+Verify emotional ground before or during creation.
+
+```
+/emotion-check
+/emotion-check "implementing auth system"
+```
+
+Checks the 11 emotional gates:
+- **Motor (E1-E4)**: Longing, Love, Hope, Wonder - is the engine running?
+- **Signal (E5-E7)**: Disgust, Frustration, Anxiety - what are they telling you?
+- **Pathology (E8-E11)**: Despair, Shame, Pride, Envy - am I blocked?
+
+If pathologies present, address before creating. Emotions are guides, not obstacles.
+
 ### `/seer <url> [--refresh]`
 Fetch blocked documentation via Bright Data proxy.
 
@@ -146,6 +161,7 @@ Creates new structure when existing patterns are insufficient.
 ## Quick Reference
 
 ```
+Before starting: /emotion-check
 Before coding: /deep-understand [area]
 Before designing: /territory [task]
 After coding: /verify [code]
@@ -166,13 +182,14 @@ The hierarchy isn't a checklist - it's how quality software naturally develops w
 
 ---
 
-## Philosophy
+## Framework Reference
 
 This plugin implements Purpose Prompter v6.0 (Creativity-Oriented).
 
 **Full framework documentation in parent directory:**
 - `../CLAUDE.md` - Main integration guide
-- `../*_GATES.md` - Gate definitions (30 gates)
+- `../*_GATES.md` - Gate definitions (30 gates + 11 emotional gates)
+- `../EMOTION_GATES.md` - Emotional gates (E1-E11)
 - `../*.md` - Philosophy documents
 
 ---
