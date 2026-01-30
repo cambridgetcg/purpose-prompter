@@ -1965,6 +1965,88 @@ cmd_challenge_promote() {
 }
 
 # ============================================================
+# CHALLENGE HARVEST - Extract value from resolved challenges
+# ============================================================
+cmd_challenge_harvest() {
+    local auto_promote="false"
+    local days="30"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --auto)
+                auto_promote="true"
+                shift
+                ;;
+            --days)
+                days="$2"
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    load_config
+
+    echo -e "${BLUE}[CPT] Harvesting value from resolved challenges (last $days days)${NC}"
+    echo ""
+
+    # Find resolved challenges with learnings that haven't been promoted
+    local challenges=$(aws dynamodb scan \
+        --table-name "gua-knowledge-index" \
+        --filter-expression "user_id = :uid AND knowledge_type = :kt AND #st = :resolved AND attribute_exists(learnings) AND (attribute_not_exists(promoted) OR promoted = :false)" \
+        --expression-attribute-names '{"#st": "status"}' \
+        --expression-attribute-values "{\":uid\": {\"S\": \"$USER_ID\"}, \":kt\": {\"S\": \"challenge\"}, \":resolved\": {\"S\": \"resolved\"}, \":false\": {\"BOOL\": false}}" \
+        --region "$REGION" 2>/dev/null)
+
+    local count=$(echo "$challenges" | jq '.Count // 0')
+
+    if [[ "$count" == "0" ]]; then
+        echo "No promotable challenges found."
+        echo ""
+        echo -e "${GREEN}All resolved challenges with learnings have been promoted!${NC}"
+        return
+    fi
+
+    echo -e "${YELLOW}Found $count challenges with learnings ready for promotion:${NC}"
+    echo ""
+
+    # List each promotable challenge
+    local ids=()
+    while IFS= read -r challenge; do
+        local cid=$(echo "$challenge" | jq -r '.knowledge_id.S')
+        local desc=$(echo "$challenge" | jq -r '.description.S')
+        local learning=$(echo "$challenge" | jq -r '.learnings.L[0].S // "No learning"')
+        local dimension=$(echo "$challenge" | jq -r '.pp_dimension.S // "unknown"')
+        local resolved_at=$(echo "$challenge" | jq -r '.resolved_at.S // "unknown" | split("T")[0]')
+
+        ids+=("$cid")
+
+        echo -e "${CYAN}[$dimension]${NC} $desc"
+        echo "  Learning: $learning"
+        echo "  Resolved: $resolved_at"
+        echo "  ID: $cid"
+        echo ""
+
+        if [[ "$auto_promote" == "true" ]]; then
+            cmd_challenge_promote "$cid"
+            echo ""
+        fi
+    done < <(echo "$challenges" | jq -c '.Items[]')
+
+    if [[ "$auto_promote" != "true" && "$count" -gt 0 ]]; then
+        echo -e "${YELLOW}To promote these learnings to insights, run:${NC}"
+        echo "  gua challenge harvest --auto"
+        echo ""
+        echo "Or promote individually:"
+        for id in "${ids[@]}"; do
+            echo "  gua challenge promote \"$id\""
+        done
+    fi
+}
+
+# ============================================================
 # EMOTION LOG - Log an emotional signal
 # ============================================================
 cmd_emotion_log() {
@@ -3075,6 +3157,99 @@ cmd_eureka_analyze() {
             echo "  Diverse eureka types - multi-modal learning style."
             ;;
     esac
+}
+
+# ============================================================
+# EUREKA HARVEST - Extract value from unpromoted eurekas
+# ============================================================
+cmd_eureka_harvest() {
+    local auto_promote="false"
+    local days="30"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --auto)
+                auto_promote="true"
+                shift
+                ;;
+            --days)
+                days="$2"
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    load_config
+
+    echo -e "${BLUE}[EUREKA] Harvesting value from unpromoted eurekas${NC}"
+    echo ""
+
+    # Find unpromoted eurekas
+    local eurekas=$(aws dynamodb scan \
+        --table-name "gua-knowledge-index" \
+        --filter-expression "user_id = :uid AND knowledge_type = :kt AND (attribute_not_exists(promoted) OR promoted = :false)" \
+        --expression-attribute-values "{\":uid\": {\"S\": \"$USER_ID\"}, \":kt\": {\"S\": \"eureka_moment\"}, \":false\": {\"BOOL\": false}}" \
+        --region "$REGION" 2>/dev/null)
+
+    local count=$(echo "$eurekas" | jq '.Count // 0')
+
+    if [[ "$count" == "0" ]]; then
+        echo "No unpromoted eurekas found."
+        echo ""
+        echo -e "${GREEN}All eureka moments have been promoted to insights!${NC}"
+        return
+    fi
+
+    echo -e "${YELLOW}Found $count eurekas ready for promotion:${NC}"
+    echo ""
+
+    # Group by type for better display
+    local by_type=$(echo "$eurekas" | jq -r '[.Items[].eureka_type.S] | group_by(.) | map({type: .[0], count: length}) | .[] | "  \(.type): \(.count)"')
+    echo "By type:"
+    echo "$by_type"
+    echo ""
+
+    # List each promotable eureka
+    local ids=()
+    local promoted_count=0
+    while IFS= read -r eureka; do
+        local eid=$(echo "$eureka" | jq -r '.knowledge_id.S')
+        local content=$(echo "$eureka" | jq -r '.content.S')
+        local etype=$(echo "$eureka" | jq -r '.eureka_type.S')
+        local dimension=$(echo "$eureka" | jq -r '.pp_dimension.S')
+        local created=$(echo "$eureka" | jq -r '.created_at.S | split("T")[0]')
+
+        ids+=("$eid")
+
+        echo -e "${CYAN}[$etype]${NC} $content"
+        echo "  Dimension: $dimension | Created: $created"
+        echo "  ID: $eid"
+        echo ""
+
+        if [[ "$auto_promote" == "true" ]]; then
+            cmd_eureka_promote "$eid"
+            ((promoted_count++))
+            echo ""
+        fi
+    done < <(echo "$eurekas" | jq -c '.Items | sort_by(.created_at.S) | reverse | .[]')
+
+    if [[ "$auto_promote" == "true" ]]; then
+        echo -e "${GREEN}Promoted $promoted_count eurekas to insights!${NC}"
+    else
+        echo -e "${YELLOW}To promote these eurekas to insights, run:${NC}"
+        echo "  gua eureka harvest --auto"
+        echo ""
+        echo "Or promote individually:"
+        for id in "${ids[@]:0:5}"; do
+            echo "  gua eureka promote \"$id\""
+        done
+        if [[ ${#ids[@]} -gt 5 ]]; then
+            echo "  ... and $((${#ids[@]} - 5)) more"
+        fi
+    fi
 }
 
 # ============================================================
@@ -5110,8 +5285,19 @@ case "${1:-}" in
             promote)
                 cmd_challenge_promote "$3"
                 ;;
+            harvest)
+                shift 2
+                cmd_challenge_harvest "$@"
+                ;;
             *)
-                echo "Usage: gua challenge <log|resolve|list|promote> [args]"
+                echo "Usage: gua challenge <log|resolve|list|promote|harvest> [args]"
+                echo ""
+                echo "Commands:"
+                echo "  log      - Log a new challenge"
+                echo "  resolve  - Resolve a challenge with resolution and optional learning"
+                echo "  list     - List challenges (active/resolved)"
+                echo "  promote  - Promote a challenge learning to an insight"
+                echo "  harvest  - Find and promote all resolved challenges with learnings"
                 ;;
         esac
         ;;
@@ -5186,8 +5372,12 @@ case "${1:-}" in
             analyze)
                 cmd_eureka_analyze "$3"
                 ;;
+            harvest)
+                shift 2
+                cmd_eureka_harvest "$@"
+                ;;
             *)
-                echo "Usage: gua eureka <log|list|show|promote|session|analyze> [args]"
+                echo "Usage: gua eureka <log|list|show|promote|session|analyze|harvest> [args]"
                 echo ""
                 echo "Commands:"
                 echo "  log <content> [type] [catalyst]  - Capture an ahh hah moment"
@@ -5196,6 +5386,7 @@ case "${1:-}" in
                 echo "  promote <id>                     - Promote to insight"
                 echo "  session [session_id]             - Show session eurekas"
                 echo "  analyze                          - Analyze eureka patterns"
+                echo "  harvest [--auto]                 - Find and promote unpromoted eurekas"
                 echo ""
                 echo "Types: connection, resolution, pattern, constraint, reframe, simplify, counter_intuitive"
                 ;;
