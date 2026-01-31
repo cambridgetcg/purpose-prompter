@@ -1,0 +1,134 @@
+{
+  "last_integration": "2026-01-24T15:30:00Z",
+  "mode": "full",
+  "scope": "global",
+  "entries_processed": 6,
+  "perspectives_processed": 0,
+  "patterns_confirmed": 6,
+  "patterns_emerging": 2,
+  "blindspots_active": 2,
+  "questions_open": 5,
+  "priorities_identified": 9,
+  "suggestions_backlog": 5,
+  "experiments_defined": 3,
+  "next_integration_threshold": 10,
+  "dimension_health": {
+    "truth": { "pass_rate": 0.83, "entries": 6 },
+    "understanding": { "pass_rate": 1.0, "entries": 6 },
+    "beauty": { "pass_rate": 1.0, "entries": 6 },
+    "justice": { "pass_rate": 1.0, "entries": 6 },
+    "creativity": { "pass_rate": 1.0, "entries": 4, "note": "2 n/a" }
+  },
+  "task_diversity": {
+    "self_improvement": 6,
+    "other": 0
+  },
+  "classification": {
+    "last_run": "2026-01-24T16:45:00Z",
+    "auto_classified": 12,
+    "user_resolved": 0,
+    "global_insights": 12,
+    "local_insights": 0,
+    "splits_performed": 0,
+    "pending": 0,
+    "classified_items": [
+      {
+        "source": "entry_1",
+        "type": "learning",
+        "content": "PP must verify its own claims before documenting them",
+        "scope": "global",
+        "confidence": "high",
+        "score": { "global": 7, "local": 0 }
+      },
+      {
+        "source": "entry_1",
+        "type": "suggestion",
+        "content": "Add automatic command survey to self-verify",
+        "scope": "global",
+        "confidence": "medium",
+        "score": { "global": 4, "local": 0 }
+      },
+      {
+        "source": "entry_2",
+        "type": "learning",
+        "content": "DRY principle applies to documentation - canonical sources prevent drift",
+        "scope": "global",
+        "confidence": "high",
+        "score": { "global": 7, "local": 0 }
+      },
+      {
+        "source": "entry_2",
+        "type": "suggestion",
+        "content": "Add cross-reference validation to self-verify",
+        "scope": "global",
+        "confidence": "medium",
+        "score": { "global": 4, "local": 0 }
+      },
+      {
+        "source": "entry_3",
+        "type": "learning",
+        "content": "Self-application is the ultimate test of any framework",
+        "scope": "global",
+        "confidence": "high",
+        "score": { "global": 6, "local": 0 }
+      },
+      {
+        "source": "entry_3",
+        "type": "suggestion",
+        "content": "Schedule periodic self-verification to maintain alignment",
+        "scope": "global",
+        "confidence": "high",
+        "score": { "global": 6, "local": 0 }
+      },
+      {
+        "source": "entry_4",
+        "type": "learning",
+        "content": "Cross-session learning requires both LOAD and PERSIST mechanisms",
+        "scope": "global",
+        "confidence": "high",
+        "score": { "global": 6, "local": 0 }
+      },
+      {
+        "source": "entry_4",
+        "type": "suggestion",
+        "content": "Add blindspot check to orchestrator output",
+        "scope": "global",
+        "confidence": "medium",
+        "score": { "global": 4, "local": 0 }
+      },
+      {
+        "source": "entry_5",
+        "type": "learning",
+        "content": "Shared file access needs coordination - JSONL append safe, overwrites need locking",
+        "scope": "global",
+        "confidence": "high",
+        "score": { "global": 6, "local": 0 }
+      },
+      {
+        "source": "entry_5",
+        "type": "suggestion",
+        "content": "Consider adding lock to other write operations",
+        "scope": "global",
+        "confidence": "high",
+        "score": { "global": 5, "local": 0 }
+      },
+      {
+        "source": "entry_6",
+        "type": "learning",
+        "content": "Self-improvement features should be implemented in tiers",
+        "scope": "global",
+        "confidence": "high",
+        "score": { "global": 6, "local": 0 }
+      },
+      {
+        "source": "entry_6",
+        "type": "suggestion",
+        "content": "Implement /pp-evolution to track PP growth over time",
+        "scope": "global",
+        "confidence": "medium",
+        "score": { "global": 3, "local": 0 }
+      }
+    ]
+  },
+  "meta_note": "Data homogeneity - all entries from PP self-improvement"
+}
