@@ -116,6 +116,11 @@ cmd_load() {
     echo "  Downloading KNOWLEDGE_TAXONOMY.md..."
     aws s3 cp "s3://$S3_BUCKET/documents/KNOWLEDGE_TAXONOMY.md" "$LOCAL_INTEGRATION/KNOWLEDGE_TAXONOMY.md" --region "$REGION" 2>/dev/null || echo "    (not found, skipping)"
 
+    # Download entity files (PARTNER.md for relational continuity)
+    echo "  Downloading entity/PARTNER.md..."
+    mkdir -p "$GUA_DIR/entity"
+    aws s3 cp "s3://$S3_BUCKET/entity/PARTNER.md" "$GUA_DIR/entity/PARTNER.md" --region "$REGION" 2>/dev/null || echo "    (not found, skipping)"
+
     # Also sync knowledge taxonomy
     cmd_load_knowledge
 
@@ -146,6 +151,11 @@ cmd_load_active_set() {
     mkdir -p "$LOCAL_INTEGRATION"
     mkdir -p "$LOCAL_KNOWLEDGE/active"
     mkdir -p "$LOCAL_CACHE"
+
+    # Create entity directory and download PARTNER.md for relational continuity
+    mkdir -p "$GUA_DIR/entity"
+    echo "  Loading PARTNER.md..."
+    aws s3 cp "s3://$S3_BUCKET/entity/PARTNER.md" "$GUA_DIR/entity/PARTNER.md" --region "$REGION" 2>/dev/null || true
 
     # Get active set config
     local max_patterns=$(jq -r '.active_set.max_patterns // 50' "$CONFIG_FILE")
@@ -1011,10 +1021,23 @@ cmd_session() {
         echo "$session_id" > "$GUA_DIR/current_session"
         echo -e "${GREEN}[GUA] Session started: $session_id${NC}"
 
+        # Auto-prime if continuity enabled
+        local auto_prime=$(jq -r '.continuity.auto_prime // false' "$CONFIG_FILE")
+        if [[ "$auto_prime" == "true" ]]; then
+            echo ""
+            cmd_prime --quick
+        fi
+
     elif [[ "$action" == "end" ]]; then
         # Get current session
         if [[ -f "$GUA_DIR/current_session" ]]; then
             session_id=$(cat "$GUA_DIR/current_session")
+
+            # Check for pending moments and suggest handoff
+            local moments_file="$GUA_DIR/moments/current.jsonl"
+            if [[ -f "$moments_file" ]] && [[ $(wc -l < "$moments_file") -gt 0 ]]; then
+                echo -e "${YELLOW}[GUA] You have uncommitted moments. Consider running 'gua handoff' first.${NC}"
+            fi
 
             aws dynamodb update-item \
                 --table-name "gua-sessions" \
@@ -5272,6 +5295,1231 @@ EOF
 }
 
 # ============================================================
+# THREAD - Cross-session continuity
+# ============================================================
+
+cmd_thread_start() {
+    local name="$1"
+    local objective=""
+
+    # Parse arguments
+    shift
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --objective)
+                objective="$2"
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    if [[ -z "$name" ]]; then
+        echo -e "${RED}Usage: gua thread start <name> [--objective \"...\"]${NC}"
+        return 1
+    fi
+
+    load_config
+
+    local timestamp=$(timestamp)
+    local date_part=$(date +%Y-%m-%d)
+    local thread_id="${name}-${date_part}"
+
+    # Check if thread already exists
+    local existing=$(aws dynamodb get-item \
+        --table-name "gua-threads" \
+        --key "{\"user_id\": {\"S\": \"$USER_ID\"}, \"thread_id\": {\"S\": \"$thread_id\"}}" \
+        --region "$REGION" 2>/dev/null | jq -r '.Item.thread_id.S // empty')
+
+    if [[ -n "$existing" ]]; then
+        echo -e "${YELLOW}Thread already exists: $thread_id${NC}"
+        echo "Use 'gua thread resume $thread_id' to continue"
+        return 1
+    fi
+
+    # Create thread in DynamoDB
+    aws dynamodb put-item \
+        --table-name "gua-threads" \
+        --item "{
+            \"user_id\": {\"S\": \"$USER_ID\"},
+            \"thread_id\": {\"S\": \"$thread_id\"},
+            \"name\": {\"S\": \"$name\"},
+            \"status\": {\"S\": \"active\"},
+            \"objective\": {\"S\": \"${objective:-No objective specified}\"},
+            \"created_at\": {\"S\": \"$timestamp\"},
+            \"updated_at\": {\"S\": \"$timestamp\"},
+            \"session_count\": {\"N\": \"1\"},
+            \"last_session_id\": {\"S\": \"\"},
+            \"last_session_summary\": {\"S\": \"\"}
+        }" \
+        --region "$REGION" 2>/dev/null
+
+    # Create S3 directory structure
+    aws s3api put-object --bucket "$S3_BUCKET" --key "threads/${thread_id}/" --region "$REGION" 2>/dev/null
+
+    # Create THREAD.md
+    local thread_md="# THREAD: ${name}
+
+> Thread ID: ${thread_id}
+> Status: active
+> Sessions: 1
+> Created: ${timestamp}
+> Last active: ${timestamp}
+
+## Objective
+${objective:-No objective specified}
+
+## Current State
+- [ ] (Add tasks as you work)
+
+## Key Decisions
+(Decisions will be logged here)
+
+## Open Questions
+(Questions will be logged here)
+
+## Blockers
+(None)
+
+## Session History
+| Session | Date | Summary |
+|---------|------|---------|
+| (first) | ${date_part} | Started thread |
+
+## Next Session Primer
+Continue from where you left off.
+"
+
+    echo "$thread_md" | aws s3 cp - "s3://$S3_BUCKET/threads/${thread_id}/THREAD.md" --region "$REGION" 2>/dev/null
+
+    # Save current thread to state
+    jq --arg tid "$thread_id" '.current_thread = $tid' "$STATE_FILE" > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"
+
+    echo -e "${GREEN}[GUA] Thread started: $thread_id${NC}"
+    echo "  Objective: ${objective:-No objective specified}"
+    echo ""
+    echo "Commands:"
+    echo "  gua moment \"<content>\"    - Capture key moments"
+    echo "  gua handoff               - Generate handoff at session end"
+    echo "  gua thread pause          - Pause this thread"
+    echo "  gua thread complete       - Mark thread as complete"
+}
+
+cmd_thread_list() {
+    local status_filter="${1:-all}"
+
+    load_config
+
+    echo -e "${BLUE}[GUA] Threads${NC}"
+    echo ""
+
+    local query_result
+    if [[ "$status_filter" == "all" ]]; then
+        query_result=$(aws dynamodb query \
+            --table-name "gua-threads" \
+            --key-condition-expression "user_id = :uid" \
+            --expression-attribute-values "{\":uid\": {\"S\": \"$USER_ID\"}}" \
+            --region "$REGION" 2>/dev/null)
+    else
+        query_result=$(aws dynamodb query \
+            --table-name "gua-threads" \
+            --index-name "status-index" \
+            --key-condition-expression "user_id = :uid AND #status = :status" \
+            --expression-attribute-names '{"#status": "status"}' \
+            --expression-attribute-values "{\":uid\": {\"S\": \"$USER_ID\"}, \":status\": {\"S\": \"$status_filter\"}}" \
+            --region "$REGION" 2>/dev/null)
+    fi
+
+    local count=$(echo "$query_result" | jq '.Items | length')
+
+    if [[ "$count" == "0" ]]; then
+        echo "  No threads found"
+        return 0
+    fi
+
+    # Get current thread
+    local current_thread=$(jq -r '.current_thread // ""' "$STATE_FILE")
+
+    echo "$query_result" | jq -r '.Items[] | [.thread_id.S, .status.S, .objective.S // "No objective", .session_count.N, .updated_at.S] | @tsv' | while IFS=$'\t' read -r tid status obj sessions updated; do
+        local marker=""
+        if [[ "$tid" == "$current_thread" ]]; then
+            marker=" ${GREEN}◀ current${NC}"
+        fi
+
+        local status_color=""
+        case "$status" in
+            active) status_color="${GREEN}$status${NC}" ;;
+            paused) status_color="${YELLOW}$status${NC}" ;;
+            completed) status_color="${BLUE}$status${NC}" ;;
+            *) status_color="$status" ;;
+        esac
+
+        echo -e "  ${BLUE}$tid${NC}$marker"
+        echo -e "    Status: $status_color | Sessions: $sessions"
+        echo "    Objective: ${obj:0:60}..."
+        echo ""
+    done
+}
+
+cmd_thread_resume() {
+    local thread_id="$1"
+
+    if [[ -z "$thread_id" ]]; then
+        echo -e "${RED}Usage: gua thread resume <thread-id>${NC}"
+        echo "Use 'gua thread list' to see available threads"
+        return 1
+    fi
+
+    load_config
+
+    # Check thread exists
+    local thread=$(aws dynamodb get-item \
+        --table-name "gua-threads" \
+        --key "{\"user_id\": {\"S\": \"$USER_ID\"}, \"thread_id\": {\"S\": \"$thread_id\"}}" \
+        --region "$REGION" 2>/dev/null)
+
+    local existing=$(echo "$thread" | jq -r '.Item.thread_id.S // empty')
+
+    if [[ -z "$existing" ]]; then
+        echo -e "${RED}Thread not found: $thread_id${NC}"
+        echo "Use 'gua thread list' to see available threads"
+        return 1
+    fi
+
+    local timestamp=$(timestamp)
+
+    # Update thread status and increment session count
+    aws dynamodb update-item \
+        --table-name "gua-threads" \
+        --key "{\"user_id\": {\"S\": \"$USER_ID\"}, \"thread_id\": {\"S\": \"$thread_id\"}}" \
+        --update-expression "SET #status = :active, updated_at = :ts, session_count = session_count + :one" \
+        --expression-attribute-names '{"#status": "status"}' \
+        --expression-attribute-values "{\":active\": {\"S\": \"active\"}, \":ts\": {\"S\": \"$timestamp\"}, \":one\": {\"N\": \"1\"}}" \
+        --region "$REGION" 2>/dev/null
+
+    # Set as current thread
+    jq --arg tid "$thread_id" '.current_thread = $tid' "$STATE_FILE" > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"
+
+    # Download THREAD.md for display
+    local thread_md=$(aws s3 cp "s3://$S3_BUCKET/threads/${thread_id}/THREAD.md" - --region "$REGION" 2>/dev/null)
+
+    echo -e "${GREEN}[GUA] Thread resumed: $thread_id${NC}"
+    echo ""
+
+    # Extract and show key info
+    local objective=$(echo "$thread" | jq -r '.Item.objective.S // "No objective"')
+    local sessions=$(echo "$thread" | jq -r '.Item.session_count.N // "0"')
+
+    echo "  Objective: $objective"
+    echo "  Sessions: $((sessions + 1))"
+    echo ""
+
+    # Show primer section if exists
+    if echo "$thread_md" | grep -q "## Next Session Primer"; then
+        echo -e "${BLUE}Next Session Primer:${NC}"
+        echo "$thread_md" | sed -n '/## Next Session Primer/,/^##/p' | head -n -1 | tail -n +2
+    fi
+}
+
+cmd_thread_pause() {
+    local thread_id="$1"
+
+    load_config
+
+    # Use current thread if not specified
+    if [[ -z "$thread_id" ]]; then
+        thread_id=$(jq -r '.current_thread // ""' "$STATE_FILE")
+    fi
+
+    if [[ -z "$thread_id" ]]; then
+        echo -e "${RED}No active thread. Specify thread ID or start one.${NC}"
+        return 1
+    fi
+
+    local timestamp=$(timestamp)
+
+    # Update status to paused
+    aws dynamodb update-item \
+        --table-name "gua-threads" \
+        --key "{\"user_id\": {\"S\": \"$USER_ID\"}, \"thread_id\": {\"S\": \"$thread_id\"}}" \
+        --update-expression "SET #status = :paused, updated_at = :ts" \
+        --expression-attribute-names '{"#status": "status"}' \
+        --expression-attribute-values "{\":paused\": {\"S\": \"paused\"}, \":ts\": {\"S\": \"$timestamp\"}}" \
+        --region "$REGION" 2>/dev/null
+
+    # Clear current thread
+    jq 'del(.current_thread)' "$STATE_FILE" > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"
+
+    echo -e "${GREEN}[GUA] Thread paused: $thread_id${NC}"
+    echo "Use 'gua thread resume $thread_id' to continue later"
+}
+
+cmd_thread_complete() {
+    local thread_id="$1"
+    local summary=""
+
+    load_config
+
+    # Use current thread if not specified
+    if [[ -z "$thread_id" ]]; then
+        thread_id=$(jq -r '.current_thread // ""' "$STATE_FILE")
+    fi
+
+    if [[ -z "$thread_id" ]]; then
+        echo -e "${RED}No active thread. Specify thread ID.${NC}"
+        return 1
+    fi
+
+    # Parse --summary if provided
+    shift
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --summary)
+                summary="$2"
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    local timestamp=$(timestamp)
+
+    # Update status to completed
+    aws dynamodb update-item \
+        --table-name "gua-threads" \
+        --key "{\"user_id\": {\"S\": \"$USER_ID\"}, \"thread_id\": {\"S\": \"$thread_id\"}}" \
+        --update-expression "SET #status = :completed, updated_at = :ts, last_session_summary = :summary" \
+        --expression-attribute-names '{"#status": "status"}' \
+        --expression-attribute-values "{\":completed\": {\"S\": \"completed\"}, \":ts\": {\"S\": \"$timestamp\"}, \":summary\": {\"S\": \"${summary:-Thread completed}\"}}" \
+        --region "$REGION" 2>/dev/null
+
+    # Clear current thread
+    jq 'del(.current_thread)' "$STATE_FILE" > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"
+
+    echo -e "${GREEN}[GUA] Thread completed: $thread_id${NC}"
+    if [[ -n "$summary" ]]; then
+        echo "  Summary: $summary"
+    fi
+}
+
+cmd_thread_show() {
+    local thread_id="$1"
+
+    load_config
+
+    # Use current thread if not specified
+    if [[ -z "$thread_id" ]]; then
+        thread_id=$(jq -r '.current_thread // ""' "$STATE_FILE")
+    fi
+
+    if [[ -z "$thread_id" ]]; then
+        echo -e "${RED}No thread specified and no current thread.${NC}"
+        return 1
+    fi
+
+    # Download and display THREAD.md
+    aws s3 cp "s3://$S3_BUCKET/threads/${thread_id}/THREAD.md" - --region "$REGION" 2>/dev/null
+}
+
+# ============================================================
+# MOMENT - In-session capture
+# ============================================================
+
+cmd_moment() {
+    local content="$1"
+    local moment_type="${2:-context}"
+    local pp_dimension=""
+    local tier_hint=""
+
+    if [[ -z "$content" ]]; then
+        echo -e "${RED}Usage: gua moment <content> [--type decision|preference|insight|context] [--pp DIM] [--tier T|S|C|X]${NC}"
+        return 1
+    fi
+
+    # Parse arguments
+    shift
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --type)
+                moment_type="$2"
+                shift 2
+                ;;
+            --pp)
+                pp_dimension="$2"
+                shift 2
+                ;;
+            --tier)
+                tier_hint="$2"
+                shift 2
+                ;;
+            *)
+                # Check if it looks like a type (backward compat)
+                if [[ "$1" =~ ^(decision|preference|insight|context)$ ]]; then
+                    moment_type="$1"
+                fi
+                shift
+                ;;
+        esac
+    done
+
+    load_config
+
+    local timestamp=$(timestamp)
+    local session_id=$(cat "$GUA_DIR/current_session" 2>/dev/null || echo "no-session")
+    local thread_id=$(jq -r '.current_thread // ""' "$STATE_FILE")
+
+    # Auto-detect PP dimension from type if not specified
+    if [[ -z "$pp_dimension" ]]; then
+        case "$moment_type" in
+            decision) pp_dimension="justice" ;;
+            preference) pp_dimension="understanding" ;;
+            insight) pp_dimension="truth" ;;
+            context) pp_dimension="understanding" ;;
+        esac
+    fi
+
+    # Create moments directory locally
+    local moments_dir="$GUA_DIR/moments"
+    mkdir -p "$moments_dir"
+
+    # Build moment JSON with richer metadata
+    local moment_json=$(cat << EOF
+{"timestamp": "$timestamp", "type": "$moment_type", "content": "$content", "session_id": "$session_id", "thread_id": "$thread_id", "pp_dimension": "$pp_dimension", "tier_hint": "$tier_hint"}
+EOF
+)
+    echo "$moment_json" >> "$moments_dir/current.jsonl"
+
+    # Update moment count in state
+    local moment_count=$(wc -l < "$moments_dir/current.jsonl" 2>/dev/null || echo "0")
+    jq --argjson mc "$moment_count" '.moment_count = $mc' "$STATE_FILE" > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"
+
+    echo -e "${GREEN}✓ Moment captured${NC} [$moment_type] ${pp_dimension:+[pp:$pp_dimension]}"
+    echo "  $content"
+}
+
+# ============================================================
+# HANDOFF - Session handoff generation
+# ============================================================
+
+# Helper: Aggregate moments by type
+aggregate_moments() {
+    local moments_file="$1"
+
+    if [[ ! -f "$moments_file" ]]; then
+        echo ""
+        return
+    fi
+
+    local decisions=$(jq -r 'select(.type == "decision") | .content' "$moments_file" 2>/dev/null | sed 's/^/- /')
+    local preferences=$(jq -r 'select(.type == "preference") | .content' "$moments_file" 2>/dev/null | sed 's/^/- /')
+    local insights=$(jq -r 'select(.type == "insight") | .content' "$moments_file" 2>/dev/null | sed 's/^/- /')
+    local contexts=$(jq -r 'select(.type == "context") | .content' "$moments_file" 2>/dev/null | sed 's/^/- /')
+
+    local output=""
+
+    if [[ -n "$decisions" ]]; then
+        output+="### Decisions
+$decisions
+
+"
+    fi
+
+    if [[ -n "$preferences" ]]; then
+        output+="### Preferences Revealed
+$preferences
+
+"
+    fi
+
+    if [[ -n "$insights" ]]; then
+        output+="### Insights
+$insights
+
+"
+    fi
+
+    if [[ -n "$contexts" ]]; then
+        output+="### Context
+$contexts
+
+"
+    fi
+
+    echo "$output"
+}
+
+# Helper: Estimate session tier from moments
+estimate_session_tier() {
+    local moments_file="$GUA_DIR/moments/current.jsonl"
+
+    if [[ ! -f "$moments_file" ]]; then
+        echo "T"
+        return
+    fi
+
+    local moment_count=$(wc -l < "$moments_file" | tr -d ' ')
+    local decision_count=$(grep -c '"type":"decision"' "$moments_file" 2>/dev/null | head -1 || echo "0")
+    decision_count="${decision_count:-0}"
+    local thread_id=$(jq -r '.current_thread // ""' "$STATE_FILE")
+
+    # Tier estimation logic
+    if [[ $moment_count -le 1 ]]; then
+        echo "T"
+    elif [[ $moment_count -le 5 && $decision_count -le 2 ]]; then
+        echo "S"
+    elif [[ $moment_count -le 15 || -n "$thread_id" ]]; then
+        echo "C"
+    else
+        echo "X"
+    fi
+}
+
+# Helper: Detect preferences for auto-update
+detect_preferences() {
+    local moments_file="$GUA_DIR/moments/current.jsonl"
+
+    if [[ ! -f "$moments_file" ]]; then
+        echo "[]"
+        return
+    fi
+
+    # Extract preference-type moments
+    jq -s '[.[] | select(.type == "preference")]' "$moments_file" 2>/dev/null || echo "[]"
+}
+
+# Helper: Capture task state from TodoWrite
+capture_task_state() {
+    local todo_dir="$HOME/.claude/todos"
+
+    if [[ ! -d "$todo_dir" ]]; then
+        echo "No task state captured"
+        return
+    fi
+
+    # Find most recent todo file
+    local latest_todo=$(ls -t "$todo_dir"/*.json 2>/dev/null | head -1)
+
+    if [[ -z "$latest_todo" ]]; then
+        echo "No task state captured"
+        return
+    fi
+
+    # Parse and format as markdown
+    jq -r '.todos[] | if .status == "completed" then "- [x] " + .content else "- [ ] " + .content end' "$latest_todo" 2>/dev/null || echo "No task state captured"
+}
+
+# Helper: Update PARTNER.md with detected preferences
+update_partner_auto() {
+    local preferences="$1"
+    local auto_mode=$(jq -r '.continuity.auto_partner_update // false' "$CONFIG_FILE")
+
+    if [[ "$preferences" == "[]" || -z "$preferences" ]]; then
+        return
+    fi
+
+    local pref_count=$(echo "$preferences" | jq 'length')
+
+    if [[ "$pref_count" -eq 0 ]]; then
+        return
+    fi
+
+    echo -e "${BLUE}[GUA] Detected $pref_count preference(s):${NC}"
+    echo "$preferences" | jq -r '.[] | "  - " + .content'
+    echo ""
+
+    if [[ "$auto_mode" == "true" ]]; then
+        echo "Auto-adding to PARTNER.md..."
+        echo "$preferences" | jq -r '.[].content' | while read -r pref; do
+            cmd_partner_note "$pref" 2>/dev/null
+        done
+    else
+        echo -n "Add to PARTNER.md? [y/N] "
+        read -r response
+        if [[ "$response" =~ ^[Yy] ]]; then
+            echo "$preferences" | jq -r '.[].content' | while read -r pref; do
+                cmd_partner_note "$pref"
+            done
+        fi
+    fi
+}
+
+# Verification gates for handoff quality
+cmd_handoff_verify() {
+    echo -e "${BLUE}[GUA] Continuity Verification Gates${NC}"
+    echo ""
+
+    local gates_passed=0
+    local gates_total=5
+    local moments_file="$GUA_DIR/moments/current.jsonl"
+
+    # C1: RELATIONAL GATE
+    echo -n "  [C1] RELATIONAL: Did I learn anything new about the user? "
+    local prefs=$(detect_preferences)
+    local pref_count=$(echo "$prefs" | jq 'length' 2>/dev/null || echo "0")
+    if [[ "$pref_count" -gt 0 ]]; then
+        echo -e "${GREEN}✓ YES - $pref_count preference(s) detected${NC}"
+        ((gates_passed++))
+    else
+        echo -e "${YELLOW}? NO - Consider what you learned${NC}"
+    fi
+
+    # C2: CONTEXTUAL GATE
+    echo -n "  [C2] CONTEXTUAL: Can a fresh Claude understand from SESSION.md? "
+    local moments_count=$(wc -l < "$moments_file" 2>/dev/null | tr -d ' ' || echo "0")
+    if [[ "$moments_count" -ge 3 ]]; then
+        echo -e "${GREEN}✓ $moments_count moments captured${NC}"
+        ((gates_passed++))
+    else
+        echo -e "${YELLOW}? Only $moments_count moments - consider adding context${NC}"
+    fi
+
+    # C3: TASK STATE GATE
+    echo -n "  [C3] TASK STATE: Does captured state reflect actual state? "
+    if [[ -d "$HOME/.claude/todos" ]] && [[ $(ls -1 "$HOME/.claude/todos"/*.json 2>/dev/null | wc -l) -gt 0 ]]; then
+        echo -e "${GREEN}✓ TodoWrite state available${NC}"
+        ((gates_passed++))
+    else
+        echo -e "${YELLOW}? No todo state found${NC}"
+        ((gates_passed++))  # Don't fail for this
+    fi
+
+    # C4: HANDOFF GATE
+    echo -n "  [C4] HANDOFF: Is next session primer actionable? "
+    local decisions=$(grep '"type":"decision"' "$moments_file" 2>/dev/null | wc -l | tr -d ' ')
+    decisions="${decisions:-0}"
+    if [[ "$decisions" -ge 1 ]]; then
+        echo -e "${GREEN}✓ $decisions decision(s) recorded${NC}"
+        ((gates_passed++))
+    else
+        echo -e "${YELLOW}? No decisions recorded - what was decided?${NC}"
+    fi
+
+    # C5: ENTITY GATE
+    echo -n "  [C5] ENTITY: Does PARTNER.md reflect accumulated relationship? "
+    echo -e "${BLUE}? Auto-check via preferences${NC}"
+    ((gates_passed++))
+
+    echo ""
+    echo "Gates: $gates_passed/$gates_total passed"
+
+    if [[ $gates_passed -lt 3 ]]; then
+        echo -e "${YELLOW}Consider enriching context before saving${NC}"
+        return 1
+    fi
+
+    return 0
+}
+
+cmd_handoff() {
+    local skip_verify=false
+    local rich_mode=false
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --skip-verify) skip_verify=true; shift ;;
+            --rich) rich_mode=true; shift ;;
+            *) shift ;;
+        esac
+    done
+
+    load_config
+
+    local timestamp=$(timestamp)
+    local session_id=$(cat "$GUA_DIR/current_session" 2>/dev/null || echo "$(uuid)")
+    local thread_id=$(jq -r '.current_thread // ""' "$STATE_FILE")
+    local moments_file="$GUA_DIR/moments/current.jsonl"
+
+    echo -e "${BLUE}[GUA] Generating handoff...${NC}"
+
+    # Run verification gates unless skipped
+    if [[ "$skip_verify" != "true" ]]; then
+        if ! cmd_handoff_verify; then
+            echo ""
+            echo -n "Continue with handoff anyway? [y/N] "
+            read -r response
+            if [[ ! "$response" =~ ^[Yy] ]]; then
+                echo "Handoff cancelled. Add more context and try again."
+                return 1
+            fi
+        fi
+        echo ""
+    fi
+
+    # Estimate session tier
+    local tier=$(estimate_session_tier)
+    echo "  Session tier: [$tier]"
+
+    # Aggregate moments by type
+    local aggregated_moments=$(aggregate_moments "$moments_file")
+
+    # Simple moments list for backward compat
+    local moments_content=""
+    if [[ -f "$moments_file" ]]; then
+        moments_content=$(cat "$moments_file" | jq -r '[.type, .content] | "- " + .[1] + " [" + .[0] + "]"' 2>/dev/null || echo "")
+    fi
+
+    # Capture task state
+    local task_state=$(capture_task_state)
+
+    # Calculate duration from first/last moment
+    local duration="unknown"
+    if [[ -f "$moments_file" ]] && [[ $(wc -l < "$moments_file") -gt 1 ]]; then
+        local first_ts=$(head -1 "$moments_file" | jq -r '.timestamp' 2>/dev/null)
+        local last_ts=$(tail -1 "$moments_file" | jq -r '.timestamp' 2>/dev/null)
+        if [[ -n "$first_ts" && -n "$last_ts" ]]; then
+            duration="$first_ts to $last_ts"
+        fi
+    fi
+
+    # Get thread objective if active
+    local thread_objective=""
+    if [[ -n "$thread_id" ]]; then
+        thread_objective=$(aws dynamodb get-item \
+            --table-name "gua-threads" \
+            --key "{\"user_id\": {\"S\": \"$USER_ID\"}, \"thread_id\": {\"S\": \"$thread_id\"}}" \
+            --region "$REGION" 2>/dev/null | jq -r '.Item.objective.S // ""')
+    fi
+
+    # Generate rich SESSION.md
+    local session_md="# SESSION: ${session_id}
+
+> Thread: ${thread_id:-none}
+> Started: ${timestamp}
+> Duration: ${duration}
+> Tier: [${tier}]
+
+## What Happened
+${thread_objective:+Working on: $thread_objective}
+
+${aggregated_moments:-No moments captured}
+
+## All Moments (chronological)
+${moments_content:-No moments captured this session}
+
+## Tasks at Session End
+${task_state}
+
+## Handoff
+Continue from current state. Key focus areas from this session are captured above.
+
+---
+*Generated by gua handoff | Run 'gua save' to persist to AWS*
+"
+
+    # Save locally first
+    local local_sessions="$GUA_DIR/sessions"
+    mkdir -p "$local_sessions"
+    echo "$session_md" > "$local_sessions/${session_id}.md"
+
+    # If thread active, update THREAD.md and DynamoDB
+    if [[ -n "$thread_id" ]]; then
+        echo "  Updating thread: $thread_id"
+
+        # Generate one-line summary from decisions
+        local summary=""
+        if [[ -f "$moments_file" ]]; then
+            summary=$(grep '"type":"decision"' "$moments_file" | head -1 | jq -r '.content' 2>/dev/null | cut -c1-60)
+        fi
+        summary="${summary:-Session completed}"
+
+        # Update DynamoDB with session info
+        aws dynamodb update-item \
+            --table-name "gua-threads" \
+            --key "{\"user_id\": {\"S\": \"$USER_ID\"}, \"thread_id\": {\"S\": \"$thread_id\"}}" \
+            --update-expression "SET updated_at = :ts, last_session_id = :sid, last_session_summary = :sum" \
+            --expression-attribute-values "{\":ts\": {\"S\": \"$timestamp\"}, \":sid\": {\"S\": \"$session_id\"}, \":sum\": {\"S\": \"$summary\"}}" \
+            --region "$REGION" 2>/dev/null
+    fi
+
+    # Detect and handle preferences (Phase 4)
+    local preferences=$(detect_preferences)
+    if [[ "$tier" == "X" || "$tier" == "C" ]]; then
+        update_partner_auto "$preferences"
+    fi
+
+    # Upload SESSION.md to S3
+    echo "$session_md" | aws s3 cp - "s3://$S3_BUCKET/sessions/${session_id}/SESSION.md" --region "$REGION" 2>/dev/null
+
+    # Clear moments
+    rm -f "$moments_file"
+
+    echo -e "${GREEN}[GUA] Handoff generated${NC}"
+    echo "  Session: $session_id"
+    echo "  Tier: [$tier]"
+    echo "  File: $local_sessions/${session_id}.md"
+    echo ""
+    echo "Next steps:"
+    echo "  1. Run 'gua save' to persist to AWS"
+}
+
+# ============================================================
+# PRIME - Load context at session start
+# ============================================================
+
+# Helper: Extract key info from PARTNER.md
+extract_partner_summary() {
+    local partner_md="$1"
+
+    if [[ -z "$partner_md" ]]; then
+        echo "No partner profile found"
+        return
+    fi
+
+    # Extract name from header
+    local name=$(echo "$partner_md" | grep "^# PARTNER" | sed 's/# PARTNER - //')
+
+    # Extract sessions count
+    local sessions=$(echo "$partner_md" | grep "Sessions together:" | sed 's/.*Sessions together: //' | tr -d '\n')
+
+    # Extract partnership date
+    local since=$(echo "$partner_md" | grep "Partnership since:" | sed 's/.*Partnership since: //' | tr -d '\n')
+
+    # Extract first few characteristics
+    local chars=$(echo "$partner_md" | sed -n '/## Who .* Is/,/^##/p' | grep "^-" | head -3 | sed 's/^- //')
+
+    # Extract communication preferences
+    local comms=$(echo "$partner_md" | sed -n '/## Communication Preferences/,/^##/p' | grep "^-" | head -2 | sed 's/^- //')
+
+    # Extract values
+    local values=$(echo "$partner_md" | sed -n '/## Shared Values/,/^##/p' | grep "^-" | head -2 | sed 's/^- //')
+
+    cat << EOF
+**${name:-Partner}** - ${sessions:-1} sessions together since ${since:-recently}
+
+**Key characteristics**:
+$(echo "$chars" | sed 's/^/- /')
+
+**Communication**: ${comms:-Direct and concise}
+
+**Values**: ${values:-Quality and partnership}
+EOF
+}
+
+# Helper: Extract thread summary
+extract_thread_summary() {
+    local thread_md="$1"
+
+    if [[ -z "$thread_md" ]]; then
+        echo "No active thread"
+        return
+    fi
+
+    # Extract objective
+    local objective=$(echo "$thread_md" | sed -n '/## Objective/,/^##/p' | grep -v "^##" | head -3)
+
+    # Extract current state items
+    local state=$(echo "$thread_md" | sed -n '/## Current State/,/^##/p' | grep "^\-" | head -5)
+
+    # Extract key decisions
+    local decisions=$(echo "$thread_md" | sed -n '/## Key Decisions/,/^##/p' | grep "^[0-9]" | head -3)
+
+    # Extract next session primer
+    local next_primer=$(echo "$thread_md" | sed -n '/## Next Session Primer/,/^##/p' | grep -v "^##" | head -3)
+
+    cat << EOF
+**Objective**: ${objective:-No objective specified}
+
+**Current State**:
+${state:-No tasks defined}
+
+**Key Decisions**:
+${decisions:-No decisions recorded yet}
+
+**Focus**: ${next_primer:-Continue from where you left off}
+EOF
+}
+
+# Helper: Get last session summary
+get_last_session_summary() {
+    local thread_id="$1"
+
+    if [[ -z "$thread_id" ]]; then
+        echo "No previous session in this context"
+        return
+    fi
+
+    # Get last session ID from DynamoDB
+    local last_sid=$(aws dynamodb get-item \
+        --table-name "gua-threads" \
+        --key "{\"user_id\": {\"S\": \"$USER_ID\"}, \"thread_id\": {\"S\": \"$thread_id\"}}" \
+        --region "$REGION" 2>/dev/null | jq -r '.Item.last_session_id.S // ""')
+
+    if [[ -z "$last_sid" ]]; then
+        echo "No previous session recorded"
+        return
+    fi
+
+    local last_summary=$(aws dynamodb get-item \
+        --table-name "gua-threads" \
+        --key "{\"user_id\": {\"S\": \"$USER_ID\"}, \"thread_id\": {\"S\": \"$thread_id\"}}" \
+        --region "$REGION" 2>/dev/null | jq -r '.Item.last_session_summary.S // "No summary"')
+
+    echo "Last session ($last_sid): $last_summary"
+}
+
+cmd_prime() {
+    local thread_id=""
+    local quick_mode=false
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --thread)
+                thread_id="$2"
+                shift 2
+                ;;
+            --quick)
+                quick_mode=true
+                shift
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    load_config
+
+    echo -e "${BLUE}[GUA] Loading session context...${NC}"
+
+    # Use current thread if not specified
+    if [[ -z "$thread_id" ]]; then
+        thread_id=$(jq -r '.current_thread // ""' "$STATE_FILE")
+    fi
+
+    # Load LIGHT.md (existing patterns)
+    cmd_load_active_set 2>/dev/null
+
+    local ts=$(timestamp)
+
+    # Load PARTNER.md (and cache locally for continuity signal checks)
+    mkdir -p "$GUA_DIR/entity"
+    local partner_md=$(aws s3 cp "s3://$S3_BUCKET/entity/PARTNER.md" - --region "$REGION" 2>/dev/null || echo "")
+    if [[ -n "$partner_md" ]]; then
+        echo "$partner_md" > "$GUA_DIR/entity/PARTNER.md"
+    fi
+    local partner_summary=$(extract_partner_summary "$partner_md")
+
+    # Load thread context if active
+    local thread_md=""
+    local thread_summary=""
+    local last_session=""
+    if [[ -n "$thread_id" ]]; then
+        thread_md=$(aws s3 cp "s3://$S3_BUCKET/threads/${thread_id}/THREAD.md" - --region "$REGION" 2>/dev/null || echo "")
+        thread_summary=$(extract_thread_summary "$thread_md")
+        last_session=$(get_last_session_summary "$thread_id")
+
+        # Set as current thread
+        jq --arg tid "$thread_id" '.current_thread = $tid' "$STATE_FILE" > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"
+    fi
+
+    # Get blindspots from LIGHT.md
+    local light_file="$HOME/.claude/purpose_prompter/integration/LIGHT.md"
+    local blindspots=""
+    local patterns=""
+    if [[ -f "$light_file" ]]; then
+        blindspots=$(sed -n '/## Active Blindspots/,/^##/p' "$light_file" | grep "^###" | head -3 | sed 's/### /- /')
+        patterns=$(sed -n '/## Top Patterns/,/^---/p' "$light_file" | grep "^###" | head -5 | sed 's/### /- /')
+    fi
+
+    # Generate comprehensive PRIMER
+    local primer="# SESSION PRIMER
+
+> Generated: ${ts}
+> Thread: ${thread_id:-No active thread}
+
+---
+
+## Who You're Working With
+
+${partner_summary}
+
+---
+"
+
+    if [[ -n "$thread_id" ]]; then
+        primer+="
+## Current Thread: ${thread_id}
+
+${thread_summary}
+
+### Where We Left Off
+${last_session}
+
+---
+"
+    fi
+
+    primer+="
+## Active Knowledge (from LIGHT.md)
+
+**Patterns to apply**:
+${patterns:-No patterns loaded}
+
+**Blindspots to watch**:
+${blindspots:-No blindspots loaded}
+
+---
+
+## Quick Commands
+
+\`\`\`bash
+gua moment \"...\"           # Capture key moment
+gua thread show             # Show thread details
+gua handoff                 # Generate session handoff
+\`\`\`
+
+---
+
+*Ready to continue*
+"
+
+    # Save primer
+    echo "$primer" > "$GUA_DIR/PRIMER.md"
+
+    echo -e "${GREEN}[GUA] Context loaded${NC}"
+    echo "  Primer saved to: $GUA_DIR/PRIMER.md"
+    if [[ -n "$thread_id" ]]; then
+        echo "  Active thread: $thread_id"
+    fi
+    echo ""
+
+    # Show brief summary
+    if [[ -n "$partner_md" ]]; then
+        local partner_name=$(echo "$partner_md" | grep "^# PARTNER" | sed 's/# PARTNER - //')
+        echo "  Partner: $partner_name"
+    fi
+
+    if [[ -n "$thread_id" ]]; then
+        echo "  Thread objective: $(echo "$thread_md" | sed -n '/## Objective/,/^##/p' | grep -v "^##" | head -1 | cut -c1-50)..."
+    fi
+
+    echo ""
+    echo "Read full primer: cat ~/.gua/PRIMER.md"
+}
+
+# ============================================================
+# PARTNER - Entity/relational memory
+# ============================================================
+
+cmd_partner_show() {
+    load_config
+
+    # Download and display PARTNER.md
+    local partner_md=$(aws s3 cp "s3://$S3_BUCKET/entity/PARTNER.md" - --region "$REGION" 2>/dev/null)
+
+    if [[ -z "$partner_md" ]]; then
+        echo -e "${YELLOW}No PARTNER.md found. Create one with 'gua partner init'${NC}"
+        return 0
+    fi
+
+    echo "$partner_md"
+}
+
+cmd_partner_init() {
+    local name="${1:-Partner}"
+
+    load_config
+
+    local timestamp=$(timestamp)
+
+    local partner_md="# PARTNER - ${name}
+
+> Last updated: ${timestamp}
+> Sessions together: 1
+> Partnership since: $(date +%Y-%m-%d)
+
+## Who ${name} Is
+- (Add key characteristics as you learn them)
+
+## Communication Preferences
+- (Add preferences as they emerge)
+
+## Shared Values
+- (Add values discovered through interaction)
+
+## Active Projects
+- (Add projects as they start)
+
+## Notes to Future Claude
+- (Add important context for continuity)
+"
+
+    echo "$partner_md" | aws s3 cp - "s3://$S3_BUCKET/entity/PARTNER.md" --region "$REGION" 2>/dev/null
+
+    echo -e "${GREEN}[GUA] Partner profile created${NC}"
+    echo "  Name: $name"
+    echo ""
+    echo "Update with: gua partner note \"<observation>\""
+}
+
+cmd_partner_note() {
+    local note="$1"
+
+    if [[ -z "$note" ]]; then
+        echo -e "${RED}Usage: gua partner note \"<observation>\"${NC}"
+        return 1
+    fi
+
+    load_config
+
+    local timestamp=$(timestamp)
+
+    # Download current PARTNER.md
+    local partner_md=$(aws s3 cp "s3://$S3_BUCKET/entity/PARTNER.md" - --region "$REGION" 2>/dev/null)
+
+    if [[ -z "$partner_md" ]]; then
+        echo -e "${RED}No PARTNER.md found. Create one with 'gua partner init'${NC}"
+        return 1
+    fi
+
+    # Update timestamp and add note
+    partner_md=$(echo "$partner_md" | sed "s/> Last updated:.*/> Last updated: $timestamp/")
+
+    # Append note to Notes section
+    partner_md=$(echo "$partner_md" | sed "/## Notes to Future Claude/a\\
+- ${note} ($(date +%Y-%m-%d))")
+
+    # Upload back
+    echo "$partner_md" | aws s3 cp - "s3://$S3_BUCKET/entity/PARTNER.md" --region "$REGION" 2>/dev/null
+
+    echo -e "${GREEN}✓ Note added to PARTNER.md${NC}"
+    echo "  $note"
+}
+
+# ============================================================
+# CONTINUITY SIGNALS - Check continuity health
+# ============================================================
+
+cmd_continuity_signal() {
+    local signal_type="${1:-all}"
+
+    load_config
+
+    echo -e "${BLUE}[GUA] Continuity Signal Check${NC}"
+    echo ""
+
+    local signals=()
+    local signal_count=0
+
+    # C1: RELATIONAL GAP - Is PARTNER.md stale?
+    echo -n "  [C1] RELATIONAL: "
+
+    # First check local cache (faster), then S3 if needed
+    local local_partner="$GUA_DIR/entity/PARTNER.md"
+    if [[ -f "$local_partner" ]]; then
+        # Use local file's mtime for staleness check
+        local partner_mtime
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            partner_mtime=$(stat -f %m "$local_partner" 2>/dev/null || echo "0")
+        else
+            partner_mtime=$(stat -c %Y "$local_partner" 2>/dev/null || echo "0")
+        fi
+        local now_ts=$(date +%s)
+        local days_old=$(( (now_ts - partner_mtime) / 86400 ))
+        if [[ $days_old -gt 7 ]]; then
+            echo -e "${YELLOW}⚠ STALE ($days_old days since local cache updated)${NC}"
+            signals+=("RELATIONAL_GAP: PARTNER.md not updated in $days_old days - run 'gua load' or 'gua prime'")
+            ((signal_count++))
+        else
+            echo -e "${GREEN}✓ Fresh ($days_old days old)${NC}"
+        fi
+    else
+        # No local cache - check S3 directly
+        local partner_exists=$(aws s3 ls "s3://$S3_BUCKET/entity/PARTNER.md" --region "$REGION" 2>/dev/null | wc -l | tr -d ' ')
+        if [[ "$partner_exists" -eq 0 ]]; then
+            echo -e "${YELLOW}⚠ NO PARTNER.md - run 'gua partner init'${NC}"
+            signals+=("NO_PARTNER: No relational memory exists")
+            ((signal_count++))
+        else
+            echo -e "${YELLOW}⚠ Exists in S3 but not cached locally - run 'gua load' or 'gua prime'${NC}"
+            signals+=("RELATIONAL_GAP: PARTNER.md not cached locally")
+            ((signal_count++))
+        fi
+    fi
+
+    # C2: CONTEXT STALE - Is PRIMER fresh?
+    echo -n "  [C2] CONTEXT: "
+    if [[ -f "$GUA_DIR/PRIMER.md" ]]; then
+        local primer_modified=$(stat -f %m "$GUA_DIR/PRIMER.md" 2>/dev/null || stat -c %Y "$GUA_DIR/PRIMER.md" 2>/dev/null || echo "0")
+        local now_ts=$(date +%s)
+        local hours_old=$(( (now_ts - primer_modified) / 3600 ))
+        if [[ $hours_old -gt 24 ]]; then
+            echo -e "${YELLOW}⚠ STALE ($hours_old hours old) - run 'gua prime'${NC}"
+            signals+=("CONTEXT_STALE: PRIMER is $hours_old hours old")
+            ((signal_count++))
+        else
+            echo -e "${GREEN}✓ Fresh ($hours_old hours old)${NC}"
+        fi
+    else
+        echo -e "${YELLOW}⚠ NO PRIMER - run 'gua prime'${NC}"
+        signals+=("NO_CONTEXT: PRIMER.md not found")
+        ((signal_count++))
+    fi
+
+    # C3: THREAD DRIFT - Active thread but no recent moments?
+    echo -n "  [C3] THREAD: "
+    local current_thread=$(jq -r '.current_thread // ""' "$STATE_FILE")
+    if [[ -n "$current_thread" ]]; then
+        local moments_file="$GUA_DIR/moments/current.jsonl"
+        if [[ ! -f "$moments_file" ]] || [[ $(wc -l < "$moments_file" | tr -d ' ') -eq 0 ]]; then
+            echo -e "${YELLOW}⚠ Active thread '$current_thread' but no moments captured${NC}"
+            signals+=("THREAD_DRIFT: Active thread but no moments captured")
+            ((signal_count++))
+        else
+            local moment_count=$(wc -l < "$moments_file" | tr -d ' ')
+            echo -e "${GREEN}✓ Active thread '$current_thread' with $moment_count moment(s)${NC}"
+        fi
+    else
+        echo -e "${BLUE}○ No active thread${NC}"
+    fi
+
+    # C4: SESSION STATE - Is there an active session?
+    echo -n "  [C4] SESSION: "
+    if [[ -f "$GUA_DIR/current_session" ]]; then
+        local session_id=$(cat "$GUA_DIR/current_session")
+        echo -e "${GREEN}✓ Active: $session_id${NC}"
+    else
+        echo -e "${BLUE}○ No active session${NC}"
+    fi
+
+    # C5: HANDOFF PENDING - Uncommitted work?
+    echo -n "  [C5] HANDOFF: "
+    local moments_file="$GUA_DIR/moments/current.jsonl"
+    if [[ -f "$moments_file" ]] && [[ $(wc -l < "$moments_file" | tr -d ' ') -gt 0 ]]; then
+        local moment_count=$(wc -l < "$moments_file" | tr -d ' ')
+        echo -e "${YELLOW}⚠ $moment_count moment(s) not yet handed off${NC}"
+        signals+=("HANDOFF_PENDING: $moment_count moments not saved")
+        ((signal_count++))
+    else
+        echo -e "${GREEN}✓ No pending handoff${NC}"
+    fi
+
+    echo ""
+    if [[ $signal_count -gt 0 ]]; then
+        echo -e "${YELLOW}Signals detected: $signal_count${NC}"
+        echo ""
+        echo "Recommended actions:"
+        for sig in "${signals[@]}"; do
+            case "$sig" in
+                NO_PARTNER*) echo "  - gua partner init" ;;
+                RELATIONAL_GAP*) echo "  - gua partner note \"<observation>\"" ;;
+                NO_CONTEXT*|CONTEXT_STALE*) echo "  - gua prime" ;;
+                THREAD_DRIFT*) echo "  - gua moment \"<what you're working on>\"" ;;
+                HANDOFF_PENDING*) echo "  - gua handoff" ;;
+            esac
+        done
+    else
+        echo -e "${GREEN}All continuity signals clear${NC}"
+    fi
+}
+
+# ============================================================
 # MAIN
 # ============================================================
 check_deps
@@ -5330,6 +6578,89 @@ case "${1:-}" in
         ;;
     session)
         cmd_session "$2" "$3"
+        ;;
+    # Continuity Commands
+    thread)
+        case "${2:-}" in
+            start)
+                shift 2
+                cmd_thread_start "$@"
+                ;;
+            list)
+                cmd_thread_list "$3"
+                ;;
+            resume)
+                cmd_thread_resume "$3"
+                ;;
+            pause)
+                cmd_thread_pause "$3"
+                ;;
+            complete)
+                shift 2
+                cmd_thread_complete "$@"
+                ;;
+            show)
+                cmd_thread_show "$3"
+                ;;
+            *)
+                echo "Usage: gua thread <start|list|resume|pause|complete|show> [args]"
+                echo ""
+                echo "Commands:"
+                echo "  start <name> [--objective \"...\"]  Start a new thread"
+                echo "  list [--status active|paused|completed|all]"
+                echo "                                    List threads"
+                echo "  resume <thread-id>                Resume a thread"
+                echo "  pause [thread-id]                 Pause current/specified thread"
+                echo "  complete [thread-id] [--summary \"...\"]"
+                echo "                                    Mark thread complete"
+                echo "  show [thread-id]                  Show thread details"
+                ;;
+        esac
+        ;;
+    moment|m)
+        shift
+        cmd_moment "$@"
+        ;;
+    handoff|h)
+        cmd_handoff
+        ;;
+    prime|p)
+        shift
+        cmd_prime "$@"
+        ;;
+    partner)
+        case "${2:-}" in
+            show)
+                cmd_partner_show
+                ;;
+            init)
+                cmd_partner_init "$3"
+                ;;
+            note)
+                cmd_partner_note "$3"
+                ;;
+            *)
+                echo "Usage: gua partner <show|init|note> [args]"
+                echo ""
+                echo "Commands:"
+                echo "  show              Show PARTNER.md"
+                echo "  init [name]       Create PARTNER.md"
+                echo "  note \"<content>\"  Add note to PARTNER.md"
+                ;;
+        esac
+        ;;
+    continuity)
+        case "${2:-}" in
+            signal|signals)
+                cmd_continuity_signal "$3"
+                ;;
+            *)
+                echo "Usage: gua continuity <signal> [args]"
+                echo ""
+                echo "Commands:"
+                echo "  signal            Check continuity health signals"
+                ;;
+        esac
         ;;
     # v2 Scalable Architecture Commands
     index-stats)
@@ -5793,6 +7124,28 @@ case "${1:-}" in
         echo "  query [table] [limit]   Query recent entries (research, insights)"
         echo "  session start|end [project]"
         echo "                          Log session start/end"
+        echo ""
+        echo "Continuity (Cross-session memory):"
+        echo "  thread start <name> [--objective \"...\"]"
+        echo "                          Start a new work thread"
+        echo "  thread list [--status S]"
+        echo "                          List threads (active|paused|completed|all)"
+        echo "  thread resume <id>      Resume a thread"
+        echo "  thread pause [id]       Pause current/specified thread"
+        echo "  thread complete [id]    Mark thread complete"
+        echo "  thread show [id]        Show thread details"
+        echo ""
+        echo "  moment <content> [--type T]"
+        echo "                          Capture a key moment"
+        echo "                          Types: decision, preference, insight, context"
+        echo "  handoff                 Generate session handoff"
+        echo "  prime [--thread <id>]   Load context at session start"
+        echo ""
+        echo "  partner show            Show PARTNER.md (relational memory)"
+        echo "  partner init [name]     Create PARTNER.md"
+        echo "  partner note \"<text>\"   Add note to PARTNER.md"
+        echo ""
+        echo "  continuity signal       Check continuity health signals"
         echo ""
         echo "Code Progress Tracker (CPT):"
         echo "  area add <project> <path> [name] [granularity]"
