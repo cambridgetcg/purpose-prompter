@@ -7236,11 +7236,58 @@ case "${1:-}" in
         echo "  path adjust \"reason\"    Log path adjustment"
         echo "  path status [path]      Show path status dashboard"
         echo ""
+        echo -e "${BLUE}Concurrent Sessions:${NC}"
+        echo "  session init [--role=X] [--domains=X,Y]"
+        echo "                          Initialize session for concurrent work"
+        echo "  session end             End current session"
+        echo "  session status          Show session status"
+        echo "  session list            List all active sessions"
+        echo "  session dashboard       Show concurrent sessions dashboard"
+        echo "  lock domain <path>      Lock a directory"
+        echo "  lock file <path> [mode] Lock a file (exclusive|collaborative)"
+        echo "  unlock <path>           Release a lock"
+        echo "  locks list              Show all locks"
+        echo "  msg send <sess> <msg>   Send message to session"
+        echo "  msg broadcast <msg>     Send to all sessions"
+        echo "  msg read                Read messages"
+        echo "  handoff create <summary> Create handoff for next session"
+        echo "  handoff list            List pending handoffs"
+        echo "  handoff pickup <id>     Pick up a handoff"
+        echo ""
         echo "Setup: ~/.gua/setup.sh"
         echo "Upgrade to v2: ~/.gua/upgrade-v2.sh"
         echo "Enable CPT: ~/.gua/upgrade-cpt.sh"
         echo "Enable Dev Knowledge: ~/.gua/upgrade-dev.sh"
         ;;
+
+    # ============================================================
+    # CONCURRENT SESSION COMMANDS
+    # ============================================================
+    session)
+        shift
+        "$GUA_DIR/session.sh" "$@"
+        ;;
+
+    lock)
+        "$GUA_DIR/session.sh" lock "$@"
+        ;;
+
+    unlock)
+        "$GUA_DIR/session.sh" unlock "$@"
+        ;;
+
+    locks)
+        "$GUA_DIR/session.sh" locks "$@"
+        ;;
+
+    msg)
+        "$GUA_DIR/session.sh" msg "$@"
+        ;;
+
+    handoff)
+        "$GUA_DIR/session.sh" handoff "$@"
+        ;;
+
     *)
         echo -e "${RED}Unknown command: ${1:-none}${NC}"
         echo "Run 'gua help' for usage"
