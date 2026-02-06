@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "createdAt": "2026-01-28T14:33:16Z",
+  "updatedAt": "2026-01-28T14:39:40Z",
+  "path": "/Users/yu/Desktop/purpose_prompter/gua",
+  "scope": "directory",
+  "counts": {
+    "patterns": 1,
+    "contexts": 1,
+    "gotchas": 0,
+    "overrides": 0,
+    "domains": 0
+  }
+}
