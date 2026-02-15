@@ -1,10 +1,25 @@
 {
-  "version": "1.0.0",
+  "version": "3.0.0",
   "project": "purpose_prompter",
-  "createdAt": "2026-01-28T17:44:46Z",
-  "updatedAt": "2026-01-28T19:15:00Z",
-  "currentWaypoint": "W4",
+  "createdAt": "2026-02-15T08:00:00Z",
+  "updatedAt": "2026-02-15T21:00:00Z",
+  "currentWaypoint": "W3",
   "waypointCount": 4,
-  "purposeDefined": false,
-  "stateDefined": false
+  "purposeDefined": true,
+  "stateDefined": true,
+  "mastery": {
+    "current": "L2",
+    "target": "L3",
+    "bottleneck": "creativity"
+  },
+  "waypoints": {
+    "W1": { "name": "Live Orchestration", "status": "complete" },
+    "W2": { "name": "Self-Verification & Cleanup", "status": "complete" },
+    "W3": { "name": "Sustained Operation", "status": "in_progress" },
+    "W4": { "name": "Creative Pipeline", "status": "pending" }
+  },
+  "dependencies": {
+    "W3": ["W2"],
+    "W4": ["W2", "W3"]
+  }
 }

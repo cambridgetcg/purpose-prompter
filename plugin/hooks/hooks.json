@@ -1,5 +1,5 @@
 {
-  "description": "Purpose Prompter hooks - lightweight, non-blocking guidance",
+  "description": "Purpose Prompter hooks - lightweight guidance reminders",
   "hooks": {
     "PreToolUse": [
       {
@@ -7,19 +7,7 @@
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "PP Reminder: For significant code changes, consider whether you've (1) read the target file, (2) found existing patterns to follow, (3) justified this location. Continue with your edit."
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "WebFetch",
-        "condition": "result contains 'blocked' or 'Cloudflare' or 'Access Denied' or status >= 400",
-        "hooks": [
-          {
-            "type": "prompt",
-            "prompt": "Seer Suggestion: WebFetch may have been blocked by anti-bot protection. If you need this content, try: gua seer \"<url>\" to fetch via Bright Data proxy."
+            "prompt": "PP Reminder: Before editing, have you (1) read the target file, (2) found patterns to follow, (3) justified this location? Continue with your edit."
           }
         ]
       }

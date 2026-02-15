@@ -1,18 +1,15 @@
 {
   "name": "hierarchy-tools",
-  "version": "1.0.0",
-  "description": "PP-derived tools applying the Truth-Understanding-Beauty-Justice-Creativity hierarchy to software development",
+  "version": "3.0.0",
+  "description": "Purpose Prompter tools: T->U->B->J->X hierarchy applied to software development. 4 agents, 30 gates, 3 commands.",
   "author": {
-    "name": "Yu",
-    "url": "https://github.com/yu"
+    "name": "Yu"
   },
   "license": "MIT",
   "keywords": [
     "purpose-prompter",
     "hierarchy",
-    "code-quality",
-    "architecture",
-    "understanding",
-    "verification"
+    "verification",
+    "code-quality"
   ]
 }

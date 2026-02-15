@@ -1,0 +1,12 @@
+{
+  "id": "W4",
+  "name": "Creative Pipeline",
+  "status": "pending",
+  "impl": 0,
+  "depth": "L0",
+  "createdAt": "2026-02-15T20:30:00Z",
+  "updatedAt": "2026-02-15T20:30:00Z",
+  "dimensions": ["creativity"],
+  "blockedBy": ["W2", "W3"],
+  "notes": "The L3 gate. Exercises the untested creative capacity: build agent on UNCHARTED territory, full RUBEDO transmutation. Completing this unblocks L3 Craftsman."
+}

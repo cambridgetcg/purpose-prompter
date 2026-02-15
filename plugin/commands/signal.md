@@ -1,193 +1,77 @@
 ---
-description: Detect ugliness, injustice, and stagnation signals in code - each signal indicates a specific type of incomplete understanding
-argument-hint: [target] - file path, directory, or PR to analyze for signals
+description: Detect ugliness, injustice, and stagnation signals in code
+argument-hint: [target] - file path, directory, or PR to analyze
 allowed-tools: [Read, Glob, Grep, Bash]
 model: sonnet
 ---
 
-# Signal Detection Command
+# /signal - Signal Detection
 
-The PP Signal System: Code problems signal specific types of incomplete understanding.
+The PP Signal System: code problems signal specific types of incomplete understanding.
 
-## Arguments
+## Target
 
-Target to analyze: $ARGUMENTS
+$ARGUMENTS
 
 ## The Three Signals
 
-### 1. UGLINESS Signal
+### Ugliness - Problem understanding incomplete
 
-**What it is**: Code that feels wrong, hacky, or uncomfortable to read.
+**Symptoms**: Complex conditionals, functions doing too much, unclear names, magic numbers, deep nesting, "clever" code, inconsistent patterns.
 
-**What it signals**: Incomplete understanding of the **PROBLEM**.
+**Wrong response**: Polish it (comments, renames, extractions).
+**Right response**: Understand the problem deeper. Beauty emerges naturally from understanding.
 
-**Symptoms**:
-- Complex conditionals that feel convoluted
-- Functions doing too many things
-- Unclear variable/function names
-- Magic numbers without explanation
-- Deeply nested code
-- Code that requires extensive comments to understand
-- "Clever" code that's hard to follow
-- Inconsistent patterns within the same context
+### Injustice - Codebase understanding incomplete
 
-**Wrong response**: Try to polish it (add comments, rename things, extract methods)
+**Symptoms**: God classes, utilities that should be services, business logic in controllers, scattered cross-cutting concerns, circular dependencies, leaky abstractions, duplicate logic.
 
-**Right response**: Step back and understand the problem deeper. When you truly understand, beauty emerges naturally.
+**Wrong response**: Leave it because "it works".
+**Right response**: Understand the codebase architecture. Find where code rightfully belongs.
 
----
+### Stagnation - Need for creativity
 
-### 2. INJUSTICE Signal
+**Symptoms**: "Can't do X because of Y", multiplying feature flags, workarounds on workarounds, copy-paste instead of refactoring, architecture fighting the domain.
 
-**What it is**: Code that's in the wrong place, owned by the wrong component, or violates architectural integrity.
+**Wrong response**: Force it (more hacks, flags, workarounds).
+**Right response**: Recognize uncharted territory. Build a new path, then place justly.
 
-**What it signals**: Incomplete understanding of the **CODEBASE**.
+## Process
 
-**Symptoms**:
-- God classes/modules doing everything
-- Utilities that should be domain services
-- Business logic in controllers/views
-- Cross-cutting concerns scattered everywhere
-- Circular dependencies
-- Leaky abstractions
-- Code that "doesn't belong here"
-- Duplicate logic in multiple places
-- Feature envy (one class using another's data extensively)
-
-**Wrong response**: Leave it because "it works"
-
-**Right response**: Understand the codebase architecture deeper. Find where this code rightfully belongs.
-
----
-
-### 3. STAGNATION Signal
-
-**What it is**: Inability to add features or make changes without hacking around limitations.
-
-**What it signals**: Need for **CREATIVITY** - existing structure is insufficient.
-
-**Symptoms**:
-- "We can't do X because of how Y works"
-- Feature flags multiplying
-- Workarounds on top of workarounds
-- Copy-paste because refactoring is "too hard"
-- Technical debt that blocks progress
-- Architecture that fights the problem domain
-- "This needs a rewrite"
-- Extending functionality requires touching many files
-
-**Wrong response**: Force it (add more hacks, flags, workarounds)
-
-**Right response**: Recognize uncharted territory. Build a new path that enables the needed functionality. Then place the solution justly.
-
----
-
-## Analysis Process
-
-1. **Read the target code**
-2. **Look for each signal type**
-3. **Identify specific instances**
-4. **Diagnose the underlying incomplete understanding**
-5. **Recommend the right response**
+1. Read gate definitions from `plugin/gates/GATES.md`
+2. Read the target code
+3. Look for each signal type
+4. Identify specific instances with file:line citations
+5. Diagnose the underlying incomplete understanding
+6. Recommend the right response
 
 ## Output Format
 
 ```markdown
 ## Signal Analysis: [Target]
 
-### Ugliness Signals (Problem Understanding)
+### Ugliness: [Found/None]
+| Location | Symptom | Missing Understanding |
+|----------|---------|----------------------|
+| [file:line] | [what looks ugly] | [what problem understanding is missing] |
 
-**Found**: [Yes/No]
-
-| Location | Symptom | Underlying Issue |
-|----------|---------|------------------|
-| [file:line] | [What looks ugly] | [What problem understanding is missing] |
-
-**Recommendation**: [How to understand the problem deeper]
-
----
-
-### Injustice Signals (Codebase Understanding)
-
-**Found**: [Yes/No]
-
+### Injustice: [Found/None]
 | Location | Symptom | Rightful Place |
 |----------|---------|----------------|
-| [file:line] | [What's misplaced] | [Where it should be] |
+| [file:line] | [what's misplaced] | [where it should be] |
 
-**Recommendation**: [How to understand the codebase deeper]
-
----
-
-### Stagnation Signals (Need for Creativity)
-
-**Found**: [Yes/No]
-
+### Stagnation: [Found/None]
 | Location | Symptom | Path Needed |
 |----------|---------|-------------|
-| [area] | [What's blocked] | [What structure is missing] |
-
-**Recommendation**: [What path needs to be built]
-
----
+| [area] | [what's blocked] | [what structure is missing] |
 
 ### Summary
-
-| Signal | Count | Severity | Priority |
-|--------|-------|----------|----------|
-| Ugliness | [n] | [High/Med/Low] | [1-3] |
-| Injustice | [n] | [High/Med/Low] | [1-3] |
-| Stagnation | [n] | [High/Med/Low] | [1-3] |
-
-### Recommended Action Order
-
-1. [First thing to address and why]
-2. [Second thing]
-...
+| Signal | Count | Severity |
+|--------|-------|----------|
+| Ugliness | [n] | [H/M/L] |
+| Injustice | [n] | [H/M/L] |
+| Stagnation | [n] | [H/M/L] |
 
 ### Key Insight
-
-[The most important thing to understand to improve this code]
+[The most important understanding gap to address]
 ```
-
-## Emotional Correlates
-
-Each signal has an emotional counterpart. These emotions are diagnostic - don't suppress them.
-
-| Signal | Emotion | What It Feels Like | Action |
-|--------|---------|-------------------|--------|
-| **UGLINESS** | DISGUST (E5) | Revulsion, wanting to look away, wincing | Understand PROBLEM deeper |
-| **STAGNATION** | FRUSTRATION (E6) | Hitting walls, can't make it fit, heat | May need CREATIVITY |
-| **INJUSTICE** | (felt wrongness) | Something doesn't belong here | Understand CODEBASE deeper |
-| *Truth gap* | ANXIETY (E7) | Nagging unease, uncertainty | Check TRUTH foundations |
-
-### When Emotions Arise
-
-If you feel **disgust** while reading code:
-- Don't suppress it - listen
-- The ugliness signals incomplete problem understanding
-- Go deeper into WHY before fixing WHAT
-
-If you feel **frustration** while implementing:
-- Don't force through - pause
-- The path may be blocked because territory is uncharted
-- Consider if new structure is needed first
-
-If you feel **anxiety** about your solution:
-- Don't dismiss with false confidence
-- Something may be uncertain in the foundations
-- Verify truth claims before building higher
-
-> **Full emotional gate system**: `EMOTION_GATES.md`
-> **Emotional ground check**: `/emotion-check`
-
----
-
-## Remember
-
-- **Don't polish ugliness** - understand the problem deeper
-- **Don't ignore injustice** - understand the codebase deeper
-- **Don't hack around stagnation** - build the path first
-
-These signals are gifts - they tell you exactly what understanding is missing.
-Emotions are guides, not obstacles. Honor what they tell you.

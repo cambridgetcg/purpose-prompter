@@ -1,165 +1,117 @@
-# LIGHT - Current Understanding
+# LIGHT - Cross-Session Knowledge
 
-> Synthesized from accumulated PP sessions
-> Scope: global (cross-project patterns)
-> Last integrated: 2026-01-24
-> Entries analyzed: 6
-> Sessions covered: 2026-01-21
-> Overall success rate: 97% (29/30 dimension ratings = pass)
+## BLINDSPOTS
 
----
+- **Forgetting to Capture Insights**
+- **Overconfidence After Context Load**
+- **Agents can confuse system prompt context with file content - instruct to only evaluate Read tool output**
 
-## Confirmed Patterns (HIGH confidence)
+## Reflection Trends
+*3 PP runs analyzed*
+**Recurring gate failures**: T4 (1x), B4 (1x), X5 (1x), X6 (1x)
+**Virtue tensions**: overconfidence (1x)
+**Signal patterns**: stagnation (1x), injustice (1x)
+**Recent completion**: 3/3 last runs COMPLETE
 
-### Pattern 1: Self-Application Validates Framework
-- **Observed**: 6/6 sessions (100%)
-- **Evidence**: All entries were PP improving PP
-- **Insight**: Using PP to improve PP proves the framework works. If PP can't improve itself, it can't improve other things.
-- **Implication**: Self-verification should be regular practice
-- **Source**: entries.jsonl (all entries)
+## PP Self-Improvement Queue
+PP has accumulated self-observations. Consider: `/pp "address PP self-improvement queue"`
+- The sense agent produced an excellent structured report but the comprehend agent repeated much of the same analysis. Consider having comprehend focus only on gaps identified by sense rather than re-reading all files independently.
+- DISSOLVED stage needs documentation in ALCHEMY.md — currently only NIGREDO through INTEGRATED are defined. Tuning outcomes are a valid and common result of the alchemical process.
+- sense.md output format must stay synchronized with pp.md prompt — consider single source of truth for agent output schemas to prevent drift
 
-### Pattern 2: Verification Before Documentation (Claude Enhancement Gate)
-- **Observed**: Explicitly in 4/6 entries
-- **Evidence**: Entry 1 (ghost commands), Entry 2 (diagram consolidation), Entry 3 (99% alignment), Entry 6 (12/12 alignment)
-- **Insight**: Claims must be verified against actual codebase. Aspirational documentation creates truth violations.
-- **Implication**: Run `glob`/`grep` to confirm existence before documenting
-- **Severity**: CRITICAL - this is the only active blindspot with 17% failure rate
-- **Source**: entries.jsonl lines 1,2,3,6
+## Anti-Patterns
 
-### Pattern 3: DRY Applies to Documentation
-- **Observed**: Entry 2, Entry 3
-- **Evidence**: "Reduced 107 lines of redundancy", "canonical sources prevent drift"
-- **Insight**: Duplicate documentation drifts. Single source of truth for concepts.
-- **Implication**: Cross-reference don't copy; one canonical location per concept
-- **Source**: entries.jsonl lines 2,3
+- Convenient placement anti-pattern: putting code where EASY rather than where it BELONGS. Prevention: survey codebase, understand responsibilities
+- Wrong turn: JWT library too complex
+- Convenient Placement Anti-Pattern
 
-### Pattern 4: Learning Loops Need Both Ends
-- **Observed**: Entry 4
-- **Evidence**: "Cross-session learning requires both LOAD and PERSIST mechanisms"
-- **Insight**: Feedback without loading is write-only. Loading without persistence is read-only. Need both for actual learning.
-- **Implication**: Check that learning systems have complete loops
-- **Source**: entries.jsonl line 4
+## PP Insights (30)
 
-### Pattern 5: Tiered Implementation Works
-- **Observed**: Entry 6
-- **Evidence**: "Self-improvement features should be implemented in tiers - quick wins first"
-- **Insight**: Big changes are risky. Small, validated steps compound.
-- **Implication**: Break large improvements into tiers, validate each before proceeding
-- **Source**: entries.jsonl line 6
+- Pathology emotions break the creative cycle: Despair (longing - hope), Shame (rejecting partiality), Pride (identifying with partial), Envy (misdirected longing). Recovery requires restoring the motor
+- The hierarchy (WHAT) and virtues (HOW) are orthogonal and complementary - one without the other is incomplete. You can achieve the hierarchy without virtue (producing beautiful but ego-driven work) or
+- Beauty EMERGES from understanding - cannot be added by polishing. Ugliness signal means understand problem deeper, not decorate
+- GUA is the persistence layer for PP - enables cross-session memory via AWS (S3 + DynamoDB). Knowledge taxonomy uses PP dimensions with four depth levels: L1 (name + one-liner), L2 (description + evide
+- Motor emotions (longing, love, hope, wonder) DRIVE creation. Signal emotions (disgust, frustration, anxiety) INDICATE gaps. Pathology emotions (despair, shame, pride, envy) BREAK the cycle
+- The creative cycle is ETERNAL because every manifestation is both PERFECT (for what it is) and PARTIAL (relative to the infinite ideal). This is not failure - it's the NATURE of creation. The partial 
+- PP has TWO dimensions: the HIERARCHY (Truth → Understanding → Beauty → Justice → Creativity) tells WHAT to achieve, while the VIRTUE LOOP (Humility, Gratitude, Honesty, Courage, Wisdom, Discipline, Pa
+- The eternal creative cycle: Manifestation → Revelation → Renewed Longing. Every creation is BOTH perfect (for what it is) AND partial (relative to infinite ideal). This is generative, not failure.
+- Love + Longing = Creative ache. Longing without love = mere ambition (produces ugliness). The motor emotions form a system: Wonder awakens, Love grounds, Hope sustains, Longing drives. This explains w
+- PP Motor Emotions: Love (ground), Wonder (awakener), Longing (motor), Hope (sustainer). Signal Emotions: Anxiety (truth gap), Disgust (beauty gap), Frustration (path blocked). Fruit Emotions: Joy (bea
+- ... and 20 more
 
-### Pattern 6: Concurrency Safety for Shared State
-- **Observed**: Entry 5
-- **Evidence**: Lock file implementation for /pp-review, stale lock detection
-- **Insight**: When multiple sessions might write same file, coordination needed. JSONL append is safe, but file overwrites need locking.
-- **Implication**: Consider locks for file operations that overwrite
-- **Source**: entries.jsonl line 5
+## Knowledge
 
----
+### Truth (4)
+- AWS CLI scan-index-forward syntax differs from expected
+- AWS CLI boolean flags use --no-X format for false (from challenge: AWS CLI scan-index-forward syntax differs from expected)
+- Read Before Claim, Cite File:Line
+- Signals Are Reliable Quality Indicators
 
-## Emerging Patterns (MEDIUM confidence)
+### Understanding (26)
+- GUA System
+- Purpose Prompter Core
+- GUA provides cross-session memory via S3+DynamoDB - patterns accessed frequently rank higher in LIGHT.md active set
+- CPT Challenge Hygiene: Distinguish between (1) implementation blockers (bugs, confusion, ugly hacks - resolve with learning), (2) architecture gaps (wrong place - resolve with refactor), and (3) featu
+- Database schema has 4 main tables: patents, trademarks, copyrights, licenses + audit log - all with proper enums and JSONB for complex types
+- ... and 21 more
 
-### Pattern: Structured Feedback Enables Synthesis
-- **Observed**: Implicitly in all 6 entries
-- **Evidence**: Consistent JSON format enabled pattern extraction in this very integration
-- **Insight**: Unstructured feedback is hard to analyze; structured data enables automated learning
-- **Needs more data**: What fields are most useful? What's optimal structure?
-- **Confidence rising**: This integration itself proves the pattern
+### Beauty (5)
+- Tendency to: Testing emotion integration - nested conditionals feel wrong → Resolution: Understood: domain has 3 distinct validation cases
+- Subcommand routing with default fallback preserves backward compatibility while enabling new features
+- GSIs enable efficient queries by type and session
+- Assess agent needs 20 turns minimum (not 15) - 10+ files exhausts turn budget before report generation
+- Single assess agent confirms cross-dimensional reasoning advantage - detected B4 cascading to Conformance and Proof
 
-### Pattern: CLAUDE.md Updates Should Be Immediate
-- **Observed**: Entry 6
-- **Evidence**: "CLAUDE.md updated immediately (zero drift)"
-- **Insight**: Documentation drift happens fast; immediate updates maintain truth
-- **Needs more data**: Does this apply to all documentation or just CLAUDE.md?
+### Justice (4)
+- The six justice characteristics: PLACEMENT, OWNERSHIP, RESPONSIBILITY, PROPORTION, BALANCE, INTEGRITY
+- Justice is bringing beauty to where it BELONGS - the rightful placement of solutions within the codebase
+- Justice = Rightful Placement
+- Six Justice Characteristics
 
----
+### Creativity (11)
+- No copyright repository implementation exists
+- Missing: Priority claims chain between applications
+- 5 waypoints to monetization: W1 Production Ready (75% now) → W2 Beta Launch (10 users) → W3 Value Validation (70%+ deal accuracy) → W4 Monetization (50 subscribers) → W5 Growth (200 subscribers, susta
+- PURPOSE.md construction requires understanding WHO (target users), WHY (motivation), and VISION (success criteria) before writing. The document should integrate with PATH protocol for tracking increme
+- Advanced workflows depend on basic workflows being complete first (from challenge: Missing: Priority claims chain between applications)
+- ... and 6 more
 
-## Active Blindspots
+## Techniques (16)
 
-### Blindspot 1: Ghost Documentation
-- **Frequency**: 1/6 entries (17%)
-- **Dimension**: TRUTH
-- **Pattern**: Documenting features, commands, or capabilities that don't actually exist yet
-- **Root Cause**: Aspirational documentation written before implementation
-- **Prevention**: ALWAYS verify claims against actual codebase before documenting
-- **Detection**: Run file/command survey (glob, grep) to confirm existence before claiming
-- **Status**: ACTIVE - requires vigilance
-- **Added**: 2026-01-21
+- GUA v3 knowledge lifecycle: add (capture) -> search (retrieve) -> load (activate) -> LIGHT.md (inject into session)
+- Territory assessment before implementation: CHARTED territory uses existing patterns (apply justice), UNCHARTED territory needs path-building first (apply creativity then justice).
+- When file exceeds 25k tokens: (1) Use Grep to find specific content instead of reading whole file, (2) Use offset/limit params to read chunks (e.g., offset=0 limit=500), (3) Ask Claude to Glob for fil
+- 30-gate verification system: Truth(1-5), Understanding(6-10), Beauty(11-17), Justice(18-23), Creativity(24-30) - each gate asks specific question
+- Territory assessment determines charted (use existing patterns) vs uncharted (build path first) - prevents forcing solutions into wrong structure
+- Theme updates not appearing was due to 3 cache layers: localStorage (120s), HTTP cache (45s), and no invalidation mechanism - solution was CACHE_VERSION bump + reduced TTL + theme.version tracking
+- ... and 10 more
 
-### Blindspot 2: Data Homogeneity (Meta-Blindspot)
-- **Note**: All 6 entries from PP self-improvement tasks
-- **Gap**: No data from diverse task types (bug fixes, feature implementation, external codebases)
-- **Risk**: Patterns may be specific to self-improvement, not generalizable
-- **Need**: Diverse sessions to validate patterns hold across contexts
-- **Status**: ACTIVE - limits confidence in all patterns
+## Projects
 
----
+### AxiePro (7)
+- AxiePro core purpose refined: Most ACCURATE Axie market understanding via hedonic pricing model + real-time deal detection. Value = Speed (sub-100ms) + Accuracy (0.8-0.95 confidence) + Transparency (v
+- AxiePro W1 backbone executed: Backend was already deployed (us-east-1), frontend env var fixed and redeployed, E2E tests pass 23/24. Minor CORS issue on /market/sales/recent endpoint but core features
+- Moralis switch deployed successfully. Replaced metadata_ingestion.py to use Moralis as primary API (instead of rate-limited SkyMavis). Lambda updated 2026-01-30 16:46 UTC. Next run: :40 past the hour.
+- ... and 4 more
 
-## Dimension Health
+### CardForum (1)
+- CardForum purpose: Most accurate trading card market understanding with arbitrage/investment opportunity detection. Three pillars: ACCURACY (confidence scoring), UNDERSTANDING (market intelligence), O
 
-| Dimension | Pass Rate | Assessment |
-|-----------|-----------|------------|
-| TRUTH | 83% (5/6) | Ghost Documentation blindspot active |
-| UNDERSTANDING | 100% (6/6) | Healthy - deep understanding before action |
-| BEAUTY | 100% (6/6) | Healthy - solutions emerge naturally |
-| JUSTICE | 100% (6/6) | Healthy - proper placement |
-| CREATIVITY | 100% (4/4*) | Healthy (*2 marked n/a for charted territory) |
+### MoneyMaker (22)
+- Missing routes: copyrights.routes.ts, licenses.routes.ts not created
+- Trade secrets domain not represented in schema at all
+- Domain names table missing from schema
+- ... and 19 more
 
----
+### missAV (4)
+- missAV requires cloudscraper for Cloudflare bypass - standard Client() fails with 403
+- missAV optimized downloader: cloudscraper + reduced concurrency (5) + default downloader = stable downloads
+- VPN datacenter IPs (Mullvad, NordVPN) blocked by missAV - use residential proxy or direct connection
+- ... and 1 more
 
-## Open Questions
-
-1. **Does PP help with non-self-improvement tasks?**
-   - All current data is PP improving PP
-   - Need: Run PP on external codebases and diverse task types
-   - Priority: HIGH
-
-2. **What's the optimal integration frequency?**
-   - Current: Manual when accumulated
-   - Current threshold: 10 entries
-   - Question: Should integration be automatic? What triggers it?
-
-3. **How to measure PP effectiveness over time?**
-   - Suggestion from Entry 6: "/pp-evolution to track growth"
-   - Not yet implemented
-   - Would enable longitudinal analysis
-
-4. **Are creativity and justice ratings meaningful when territory is charted?**
-   - 2 entries marked creativity as "n/a"
-   - Should there be separate tracking for charted vs uncharted work?
+## Mastery: L2 Practitioner
+Truth: L3 | Understanding: L3 | Beauty: L3 | Justice: L3 | Creativity: L2
+Next: L3 requires: (1) exercise build agent on UNCHARTED task, (2) complete a full RUBEDO transmutation, (3) 10+ PP runs across multiple days/projects, (4) clean legacy state.json, (5) resolve sense.md/pp.md output format gap
 
 ---
-
-## Suggestions Backlog (from feedback)
-
-Accumulated suggestions from feedback entries:
-
-| Entry | Suggestion | Priority | Status |
-|-------|------------|----------|--------|
-| 1 | Add automatic command survey to self-verify | HIGH | Not started |
-| 2 | Add cross-reference validation to self-verify | MEDIUM | Not started |
-| 4 | Add blindspot display to orchestrator output | HIGH | Not started |
-| 5 | Consider locks for other write operations | LOW | Monitoring |
-| 6 | Implement /pp-evolution for growth tracking | MEDIUM | Not started |
-
----
-
-## Confidence Notes
-
-| Category | Confidence | Basis |
-|----------|------------|-------|
-| Confirmed patterns | HIGH | 6 consistent entries |
-| Emerging patterns | MEDIUM | Limited observations |
-| Blindspots | MEDIUM | Single active, one meta |
-| Path forward | MEDIUM | Logical but untested |
-
-**Major limitation**: All data from same day, same task type (PP self-improvement). Diversity needed before patterns can be considered universally confirmed.
-
----
-
-## Integration Metadata
-
-- **Total feedback entries**: 6
-- **Date range**: 2026-01-21
-- **Perspectives processed**: 0 (no perspective MDs found)
-- **Last full integration**: 2026-01-24
-- **Next integration threshold**: 10 entries
+*142 items | `gua search "<query>"` for details*

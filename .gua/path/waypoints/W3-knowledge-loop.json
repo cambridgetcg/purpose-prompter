@@ -1,0 +1,13 @@
+{
+  "id": "W3",
+  "name": "Sustained Operation",
+  "status": "in_progress",
+  "impl": 30,
+  "depth": "L2",
+  "createdAt": "2026-02-15T08:00:00Z",
+  "updatedAt": "2026-02-15T20:00:00Z",
+  "dimensions": ["truth", "understanding", "beauty", "justice"],
+  "blockedBy": ["W2"],
+  "blocks": ["W4"],
+  "notes": "Infrastructure exists but evidence is single-day. Need multi-day, multi-project operation to prove sustainability."
+}

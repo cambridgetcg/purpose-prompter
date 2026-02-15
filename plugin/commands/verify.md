@@ -5,251 +5,72 @@ allowed-tools: [Read, Glob, Grep, Bash, WebFetch]
 model: sonnet
 ---
 
-# Hierarchy Verification Command
+# /verify - Hierarchy Verification
 
-Apply the complete 30-gate verification system from Purpose Prompter to ensure work is grounded in truth, emerged from understanding, beautiful, just, and creative when needed.
+Apply the complete 30-gate verification from Purpose Prompter.
 
-## Arguments
+## Target
 
-Target to verify: $ARGUMENTS
+$ARGUMENTS
 
-## The 30-Gate System
+## Process
 
-### TRUTH GATES (1-5) - Foundation
+1. **Read gate definitions**: Read `plugin/gates/GATES.md` for the complete gate reference
+2. **Read/analyze the target** specified in arguments
+3. **Evaluate each dimension** systematically:
+   - Truth (T1-T5 + Citation enhancement)
+   - Understanding (U1-U5 + Exhaustion enhancement)
+   - Beauty (B1-B7 + Conformance enhancement)
+   - Justice (J1-J6 + Evidence enhancement)
+   - Creativity (X1-X7 + Proof enhancement) - only if territory is uncharted
+4. **Check for signals**: ugliness, injustice, stagnation
+5. **Report findings**
 
-Run these checks first:
-
-1. **Grounding**: Are claims based on something identifiable and verifiable?
-2. **Calibration**: Does confidence match the evidence?
-3. **Counter-Consideration**: Have we considered what would make this wrong?
-4. **Completeness**: Is the full relevant picture represented?
-5. **Representation**: Does the language match the actual knowledge state?
-
-### UNDERSTANDING GATES (6-10) - Source
-
-6. **Mental Model**: Does this build an accurate mental model?
-7. **Why Explanation**: Does it explain WHY, not just WHAT?
-8. **Knowledge Connection**: Does it connect to what the reader already knows?
-9. **Practical Application**: Can the reader actually apply this?
-10. **Boundary Clarity**: Is it clear when this doesn't apply?
-
-### BEAUTY GATES (11-17) - Quality
-
-11. **Foundation**: Is this grounded in truth?
-12. **Emergence**: Did this emerge from understanding (not forced)?
-13. **Fit**: Does it fit the context naturally?
-14. **Elegance**: Is there nothing extra and nothing missing?
-15. **Coherence**: Does it hang together as a unified whole?
-16. **Clarity**: Can others understand this?
-17. **Appropriateness**: Is it right-sized for the purpose?
-
-### JUSTICE GATES (18-23) - Placement
-
-18. **Placement**: Is this in the right location?
-19. **Ownership**: Does the right component own this?
-20. **Responsibility**: Is the right entity handling this?
-21. **Proportion**: Is complexity distributed fairly?
-22. **Balance**: Is system equilibrium maintained?
-23. **Integrity**: Is architectural integrity preserved?
-
-### CREATIVITY GATES (24-30) - When Territory is Uncharted
-
-Only apply if existing structure is insufficient:
-
-24. **Territory**: Is this genuinely uncharted territory?
-25. **Pioneering**: Is this genuinely new ground (not reinventing)?
-26. **Path-Building**: Is the structure well-constructed?
-27. **Extension**: Does this grow the domain coherently?
-28. **Vision**: Is there clarity about where this leads?
-29. **Foundation**: Does this enable future justice?
-30. **Integration**: Is this connected to the whole (not isolated)?
-
-## Verification Process
-
-1. **Read/analyze the target** specified in arguments
-2. **Apply each gate** systematically
-3. **Report findings** in this format:
+## Output Format
 
 ```markdown
 ## Verification Report: [Target]
 
-### Truth Status: [PASS/PARTIAL/FAIL]
-- Grounding: [status] - [brief note]
-- Calibration: [status]
-- Counter-Consideration: [status]
-- Completeness: [status]
-- Representation: [status]
+### Truth: [PASS/PARTIAL/FAIL]
+T1 Grounding: [status] - [note]
+T2 Calibration: [status]
+T3 Counter: [status]
+T4 Completeness: [status]
+T5 Representation: [status]
+Citation Enhancement: [status]
 
-### Understanding Status: [PASS/PARTIAL/FAIL]
-- Mental Model: [status]
-- Why Explanation: [status]
-- Knowledge Connection: [status]
-- Practical Application: [status]
-- Boundary Clarity: [status]
+### Understanding: [PASS/PARTIAL/FAIL]
+U1-U5: [status per gate]
+Exhaustion Enhancement: [status]
 
-### Beauty Status: [PASS/PARTIAL/FAIL]
-- Foundation: [status]
-- Emergence: [status]
-- Fit: [status]
-- Elegance: [status]
-- Coherence: [status]
-- Clarity: [status]
-- Appropriateness: [status]
+### Beauty: [PASS/PARTIAL/FAIL]
+B1-B7: [status per gate]
+Conformance Enhancement: [status]
 
-### Justice Status: [PASS/PARTIAL/FAIL]
-- Placement: [status]
-- Ownership: [status]
-- Responsibility: [status]
-- Proportion: [status]
-- Balance: [status]
-- Integrity: [status]
+### Justice: [PASS/PARTIAL/FAIL]
+J1-J6: [status per gate]
+Evidence Enhancement: [status]
 
-### Territory Assessment
-- Territory Type: [Charted/Uncharted]
-- If Uncharted:
-  - Pioneering: [status]
-  - Path-Building: [status]
-  - Extension: [status]
-  - Vision: [status]
-  - Foundation: [status]
-  - Integration: [status]
+### Creativity: [PASS/PARTIAL/FAIL/N/A]
+(Only if uncharted territory)
+X1-X7: [status per gate]
+Proof Enhancement: [status]
 
-### Overall Verdict: [COMPLETE/JUST/PARTIAL/FAILED]
+### Signals
+- Ugliness: [none | description]
+- Injustice: [none | description]
+- Stagnation: [none | description]
+
+### Overall: [COMPLETE/PARTIAL/FAILED]
 
 ### Recommendations
-[Specific improvements needed to pass failed gates]
+[Specific improvements to pass failed gates]
 ```
 
-## The Signal System
+## Signal Mapping
 
-During verification, watch for these signals:
-
-- **Ugliness** signals incomplete understanding of the PROBLEM
-  - Response: Understand the problem deeper, don't polish
-
-- **Injustice** (misplacement) signals incomplete understanding of the CODEBASE
-  - Response: Understand the codebase deeper, find the rightful place
-
-- **Stagnation** signals the need for CREATIVITY
-  - Response: Recognize uncharted territory, build the path first
-
----
-
-## Emotional Integrity Check
-
-Verify emotional ground alongside technical gates:
-
-```markdown
-### Emotional Integrity: [PASS/WARN/BLOCKED]
-
-**Motor Status** (E1-E4):
-- Longing: [Present/Weak/Absent] - Is there felt pull toward better?
-- Love: [Present/Weak/Absent] - Is there care for this work?
-- Hope: [Present/Weak/Absent] - Is improvement believed possible?
-- Wonder: [Present/Weak/Absent] - Has ideal been glimpsed?
-
-**Signal Status** (E5-E7):
-- Disgust: [None / Present → understand problem deeper]
-- Frustration: [None / Present → may need creativity]
-- Anxiety: [None / Present → check truth foundations]
-
-**Pathology Status** (E8-E11):
-- Despair: [Clear/Present] | Shame: [Clear/Present]
-- Pride: [Clear/Present] | Envy: [Clear/Present]
-
-**Emotional Ground**: [Clear / Signals Present / Blocked]
-```
-
-### Emotional-Signal Mapping
-
-| Emotion | Maps To | Indicates |
-|---------|---------|-----------|
-| Disgust (E5) | UGLINESS | Problem understanding incomplete |
-| Frustration (E6) | STAGNATION | Need for creativity |
-| Anxiety (E7) | Truth gap | Foundation incomplete |
-
-If any pathology (E8-E11) detected: Work may be compromised. Address emotional state.
-
-> **Full assessment**: `/emotion-check`
-> **Gate definitions**: `EMOTION_GATES.md`
-
----
-
-## Claude-Specific Enhancement Gates (MANDATORY)
-
-These gates compensate for Claude's known limitations. Always check these.
-
-### Enhancement Gate Verification
-
-```markdown
-### Claude Enhancement Status: [PASS/PARTIAL/FAIL]
-
-**Citation Gate** (Truth):
-- [ ] Claims cite file:line as source
-- [ ] Code was READ before claiming
-- [ ] Negative claims show search evidence
-- Status: [PASS/FAIL]
-
-**Exhaustion Gate** (Understanding):
-- [ ] Related files searched (Glob)
-- [ ] Patterns searched (Grep)
-- [ ] Dependencies traced
-- [ ] Mapping documented
-- Status: [PASS/FAIL]
-
-**Conformance Gate** (Beauty):
-- [ ] Similar code found in codebase
-- [ ] Pattern extracted and followed
-- [ ] Pattern source cited
-- Status: [PASS/FAIL]
-
-**Evidence Gate** (Justice):
-- [ ] All candidate locations surveyed
-- [ ] Contents of each location read
-- [ ] Similar code cited as placement evidence
-- [ ] Rejection reasons documented for other locations
-- Status: [PASS/FAIL]
-
-**Proof Gate** (Creativity - if uncharted):
-- [ ] Multiple search terms used
-- [ ] Near-misses identified
-- [ ] Extension impossibility explained
-- [ ] Search attempts documented
-- Status: [PASS/FAIL/N/A]
-```
-
-### Verification-First Principle
-
-```
-When verifying, CHECK:
-
-1. Are claims CITED with file:line? (not assumed)
-2. Was understanding MAPPED before modification?
-3. Does new code MATCH existing patterns?
-4. Is placement backed by EVIDENCE?
-5. Is "uncharted" claim PROVEN?
-
-Uncited claims = FAIL Citation Gate
-Unmapped areas = FAIL Exhaustion Gate
-Unmatched patterns = FAIL Conformance Gate
-Unevidenced placement = FAIL Evidence Gate
-Unproven pioneering = FAIL Proof Gate
-```
-
-### Enhanced Report Format
-
-Add this section to the verification report:
-
-```markdown
-### Claude Enhancement Verification
-
-| Gate | Status | Evidence |
-|------|--------|----------|
-| Citation | [P/F] | [file:line refs or "missing"] |
-| Exhaustion | [P/F] | [search summary or "not mapped"] |
-| Conformance | [P/F] | [pattern source or "no pattern check"] |
-| Evidence | [P/F] | [placement evidence or "no survey"] |
-| Proof | [P/F/NA] | [search doc or "not pioneering"] |
-
-Enhancement Status: [ALL PASS / FAILURES NOTED]
-```
+| Signal | Meaning | Action |
+|--------|---------|--------|
+| Ugliness | Problem understanding incomplete | Understand problem deeper |
+| Injustice | Codebase understanding incomplete | Find rightful place |
+| Stagnation | Need for creativity | Build new path |
