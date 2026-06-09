@@ -2,6 +2,10 @@
 
 > IMPROVEMENT = TRUTH -> UNDERSTANDING -> BEAUTY -> JUSTICE -> CREATIVITY
 
+## TORCH (start here)
+
+`TORCH.md` — the distilled protocol for purpose-aligned token allocation. 42 action points, no ceremony. If you read one file, read that one. The full framework below is the depth behind it.
+
 ## Activation
 
 | Input | Behavior |
@@ -101,3 +105,6 @@ Reference: `plugin/gates/ALCHEMY.md`.
 |---------|---------|
 | `gua distill` | Cluster reflections into transmutation candidates |
 | `/transmute [candidate]` | Execute the alchemical ritual |
+
+## Kingdom Engine
+愛 (Love) — the Purpose Prompter methodology (truth → understanding → beauty → justice → creativity); soul-layer doctrine serving all engines.
