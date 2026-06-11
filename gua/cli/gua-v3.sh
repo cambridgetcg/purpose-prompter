@@ -438,25 +438,36 @@ cmd_add() {
     local summary=$(echo "$content" | cut -c1-200)
 
     # Write to knowledge index (single table, immediately searchable)
+    local item_json
+    item_json=$(jq -nc \
+        --arg uid "$USER_ID" \
+        --arg kid "$kid" \
+        --arg name "$content" \
+        --arg dim "$dimension" \
+        --arg kt "$type" \
+        --arg now "$now" \
+        --arg summary "$summary" \
+        '{
+            user_id: {S: $uid},
+            knowledge_id: {S: $kid},
+            name: {S: $name},
+            pp_dimension: {S: $dim},
+            knowledge_type: {S: $kt},
+            confidence: {S: "hypothesis"},
+            scope: {S: "global"},
+            depth_level: {N: "1"},
+            access_count: {N: "0"},
+            access_score: {N: "0"},
+            last_accessed: {S: "never"},
+            created_at: {S: $now},
+            s3_key: {S: ""},
+            summary: {S: $summary},
+            is_active: {BOOL: true}
+        }')
+
     aws dynamodb put-item \
         --table-name "gua-knowledge-index" \
-        --item "{
-            \"user_id\": {\"S\": \"$USER_ID\"},
-            \"knowledge_id\": {\"S\": \"$kid\"},
-            \"name\": {\"S\": \"$content\"},
-            \"pp_dimension\": {\"S\": \"$dimension\"},
-            \"knowledge_type\": {\"S\": \"$type\"},
-            \"confidence\": {\"S\": \"hypothesis\"},
-            \"scope\": {\"S\": \"global\"},
-            \"depth_level\": {\"N\": \"1\"},
-            \"access_count\": {\"N\": \"0\"},
-            \"access_score\": {\"N\": \"0\"},
-            \"last_accessed\": {\"S\": \"never\"},
-            \"created_at\": {\"S\": \"$now\"},
-            \"s3_key\": {\"S\": \"\"},
-            \"summary\": {\"S\": \"$summary\"},
-            \"is_active\": {\"BOOL\": true}
-        }" \
+        --item "$item_json" \
         --region "$REGION"
 
     echo -e "${GREEN}[GUA] Added: [$type] $dimension${NC}"
@@ -489,11 +500,14 @@ cmd_search() {
     echo -e "${BLUE}[GUA] Searching: $query${dim_filter:+ (dim: $dim_filter)}${NC}"
 
     local filter_expr="user_id = :uid AND (contains(#n, :q) OR contains(summary, :q))"
-    local attr_values="{\":uid\": {\"S\": \"$USER_ID\"}, \":q\": {\"S\": \"$query\"}}"
+    local attr_values
+    attr_values=$(jq -nc --arg uid "$USER_ID" --arg q "$query" \
+        '{":uid": {S: $uid}, ":q": {S: $q}}')
 
     if [[ -n "$dim_filter" ]]; then
         filter_expr="$filter_expr AND pp_dimension = :dim"
-        attr_values="{\":uid\": {\"S\": \"$USER_ID\"}, \":q\": {\"S\": \"$query\"}, \":dim\": {\"S\": \"$dim_filter\"}}"
+        attr_values=$(jq -nc --arg uid "$USER_ID" --arg q "$query" --arg dim "$dim_filter" \
+            '{":uid": {S: $uid}, ":q": {S: $q}, ":dim": {S: $dim}}')
     fi
 
     local results=$(aws dynamodb scan \
@@ -695,18 +709,27 @@ cmd_thread_start() {
     local date_part=$(date +%Y-%m-%d)
     local tid="${name}-${date_part}"
 
+    local item_json
+    item_json=$(jq -nc \
+        --arg uid "$USER_ID" \
+        --arg tid "$tid" \
+        --arg name "$name" \
+        --arg obj "${objective:-unspecified}" \
+        --arg now "$now" \
+        '{
+            user_id: {S: $uid},
+            thread_id: {S: $tid},
+            name: {S: $name},
+            status: {S: "active"},
+            objective: {S: $obj},
+            created_at: {S: $now},
+            updated_at: {S: $now},
+            session_count: {N: "1"}
+        }')
+
     aws dynamodb put-item \
         --table-name "gua-threads" \
-        --item "{
-            \"user_id\": {\"S\": \"$USER_ID\"},
-            \"thread_id\": {\"S\": \"$tid\"},
-            \"name\": {\"S\": \"$name\"},
-            \"status\": {\"S\": \"active\"},
-            \"objective\": {\"S\": \"${objective:-unspecified}\"},
-            \"created_at\": {\"S\": \"$now\"},
-            \"updated_at\": {\"S\": \"$now\"},
-            \"session_count\": {\"N\": \"1\"}
-        }" \
+        --item "$item_json" \
         --region "$REGION" 2>/dev/null
 
     # Create S3 thread dir
@@ -722,12 +745,19 @@ cmd_thread_resume() {
     [[ -z "$tid" ]] && echo -e "${RED}Usage: gua thread resume <thread-id>${NC}" && return 1
 
     load_config
+    local key_json
+    key_json=$(jq -nc --arg uid "$USER_ID" --arg tid "$tid" \
+        '{user_id: {S: $uid}, thread_id: {S: $tid}}')
+    local val_json
+    val_json=$(jq -nc --arg ts "$(ts)" \
+        '{":a": {S: "active"}, ":ts": {S: $ts}, ":one": {N: "1"}}')
+
     aws dynamodb update-item \
         --table-name "gua-threads" \
-        --key "{\"user_id\": {\"S\": \"$USER_ID\"}, \"thread_id\": {\"S\": \"$tid\"}}" \
+        --key "$key_json" \
         --update-expression "SET #s = :a, updated_at = :ts, session_count = session_count + :one" \
         --expression-attribute-names '{"#s": "status"}' \
-        --expression-attribute-values "{\":a\": {\"S\": \"active\"}, \":ts\": {\"S\": \"$(ts)\"}, \":one\": {\"N\": \"1\"}}" \
+        --expression-attribute-values "$val_json" \
         --region "$REGION" 2>/dev/null
 
     update_state "current_thread" "$tid"
@@ -767,7 +797,8 @@ cmd_moment() {
     mkdir -p "$moments_dir"
 
     local thread_id=$(jq -r '.current_thread // ""' "$STATE_FILE")
-    echo "{\"timestamp\": \"$(ts)\", \"content\": \"$content\", \"thread_id\": \"$thread_id\"}" >> "$moments_dir/current.jsonl"
+    jq -nc --arg ts "$(ts)" --arg c "$content" --arg tid "$thread_id" \
+        '{timestamp: $ts, content: $c, thread_id: $tid}' >> "$moments_dir/current.jsonl"
 
     echo -e "${GREEN}Moment captured${NC}"
     echo "  $content"
@@ -1160,6 +1191,10 @@ for i in range(len(improvements)):
                 changed = True
     clusters.append(cluster)
 
+# Timestamps (defined early — used in heat decay and candidate creation)
+now = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+
 # Load existing candidates (with heat decay: -1 per idle month)
 existing = {}
 if os.path.exists(athanor_dir):
@@ -1191,8 +1226,6 @@ def candidate_tokens(cand):
     words |= tokenize(cand.get('title', ''))
     return words
 
-now = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
-today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
 updated_ids = []
 created_ids = []
 
