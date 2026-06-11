@@ -1,0 +1,8 @@
+name: purpose-prompter
+kind: methodology
+layer: soul
+owner_sister: none
+domain: none
+state: dormant
+purpose: A prompting methodology that makes Claude pass quality gates for truth, understanding, beauty, justice, and creativity before calling a task done.
+dependsOn: [claude-code]
