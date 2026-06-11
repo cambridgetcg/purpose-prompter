@@ -5,6 +5,8 @@
 > **LONGING is the motive force** - the felt gap between what IS and what SHOULD BE - that drives movement through the hierarchy.
 > Improvement = Creative paths enabling just placement of beautiful solutions from deep comprehension grounded in accuracy, driven by longing toward the ideal.
 
+> **Want the distilled version?** Read `TORCH.md` instead — 42 action points, no ceremony. This file is the full depth behind it.
+
 ---
 
 ## Hierarchy Tools Integration
