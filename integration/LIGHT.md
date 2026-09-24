@@ -1,5 +1,10 @@
 # LIGHT - Cross-Session Knowledge
 
+This is a historical generated snapshot. Counts, mastery labels and prior project
+milestones describe earlier runs; they are not current work requirements. The
+[shared direction](https://github.com/cambridgetcg/kingdom-workspace/blob/main/ABUNDANCE.md)
+sets no revenue, subscriber or output target.
+
 ## BLINDSPOTS
 
 - **Forgetting to Capture Insights**
@@ -71,7 +76,7 @@ PP has accumulated self-observations. Consider: `/pp "address PP self-improvemen
 ### Creativity (11)
 - No copyright repository implementation exists
 - Missing: Priority claims chain between applications
-- 5 waypoints to monetization: W1 Production Ready (75% now) → W2 Beta Launch (10 users) → W3 Value Validation (70%+ deal accuracy) → W4 Monetization (50 subscribers) → W5 Growth (200 subscribers, susta
+- **Superseded AxiePro commercial roadmap, retained as history:** 5 waypoints to monetization: W1 Production Ready (75% now) → W2 Beta Launch (10 users) → W3 Value Validation (70%+ deal accuracy) → W4 Monetization (50 subscribers) → W5 Growth (200 subscribers, susta
 - PURPOSE.md construction requires understanding WHO (target users), WHY (motivation), and VISION (success criteria) before writing. The document should integrate with PATH protocol for tracking increme
 - Advanced workflows depend on basic workflows being complete first (from challenge: Missing: Priority claims chain between applications)
 - ... and 6 more
